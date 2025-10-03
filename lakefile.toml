@@ -3,6 +3,10 @@ version = "0.1.0"
 defaultTargets = ["Strata", "StrataMain", "StrataVerify", "StrataToCBMC"]
 testDriver = "StrataTest"
 
+[[require]]
+name = "plausible"
+path = "../plausible"
+
 [[lean_lib]]
 name = "Strata"
 
