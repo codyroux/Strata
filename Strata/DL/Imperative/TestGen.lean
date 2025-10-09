@@ -135,6 +135,13 @@ inductive InitStateArith : SemanticStoreArith → Arith.Ident → Arith.Expr →
 def update (σ : SemanticStoreArith) (x : Arith.Ident) (v : Arith.Expr) : SemanticStoreArith :=
   ⟨fun y => if x = y then .some v else σ.get y⟩
 
+inductive InitStateArith' : SemanticStoreArith → Arith.Ident → Arith.Expr → SemanticStoreArith → Prop where
+  | init :
+    σ.get x = none →
+    σ' = update σ x v →
+    ----
+    InitStateArith' σ x v σ'
+
 inductive UpdateStateArith : SemanticStoreArith → Arith.Ident → Arith.Expr → SemanticStoreArith → Prop where
   | update :
     σ.get x = .some v' →
@@ -192,37 +199,47 @@ instance : DecidableEq Arith.Expr := by infer_instance
 -- DFS: unable to convert Expr String → Option Arith.Expr to a HypothesisExpr
 -- ?
 set_option trace.plausible.deriving.arbitrary true in
-#derive_generator (fun (σ : SemanticStoreArith) => InitStateArith testStore "x" (.const 2) σ)
+#derive_generator (fun (σ : SemanticStoreArith) => InitStateArith σ_in x v σ)
 
-instance : ArbitrarySizedSuchThat SemanticStoreArith (fun σ_1 => InitStateArith testStore_1 _1 _2 σ_1) where
+instance : ArbitrarySizedSuchThat SemanticStoreArith (fun σ_1 => InitStateArith σ_in_1 x_1 v_1 σ_1) where
   arbitrarySizedST :=
-    let rec aux_arb (initSize : Nat) (size : Nat) (testStore_1 : SemanticStoreArith) (_1 : Arith.Ident)
-      (_2 : Arith.Expr) : Plausible.Gen SemanticStoreArith :=
+    let rec aux_arb (initSize : Nat) (size : Nat) (σ_in_1 : SemanticStoreArith) (x_1 : Arith.Ident) (v_1 : Arith.Expr) :
+      Plausible.Gen SemanticStoreArith :=
       match size with
       | Nat.zero =>
         GeneratorCombinators.backtrack
           [(1,
-              match DecOpt.decOpt (Eq (SemanticStoreArith.get testStore_1 _1) (Option.none)) initSize with
+              match DecOpt.decOpt (Eq (SemanticStoreArith.get σ_in_1 x_1) (Option.none)) initSize with
               | Except.ok Bool.true => do
-                let σ_1 ←
-                  ArbitrarySizedSuchThat.arbitrarySizedST (fun σ_1 => agreesOnExcept testStore_1 σ_1 _1) initSize;
-                match DecOpt.decOpt (Eq (SemanticStoreArith.get σ_1 _1) (Option.some _2)) initSize with
+                let (σ_1 : SemanticStoreArith) ←
+                  ArbitrarySizedSuchThat.arbitrarySizedST
+                      (fun (σ_1 : SemanticStoreArith) => agreesOnExcept σ_in_1 σ_1 x_1) initSize;
+                match DecOpt.decOpt (Eq (SemanticStoreArith.get σ_1 x_1) (Option.some v_1)) initSize with
                   | Except.ok Bool.true => return σ_1
                   | _ => MonadExcept.throw Plausible.Gen.genericFailure
               | _ => MonadExcept.throw Plausible.Gen.genericFailure)]
       | Nat.succ size' =>
         GeneratorCombinators.backtrack
           [(1,
-              match DecOpt.decOpt (Eq (SemanticStoreArith.get testStore_1 _1) (Option.none)) initSize with
+              match DecOpt.decOpt (Eq (SemanticStoreArith.get σ_in_1 x_1) (Option.none)) initSize with
               | Except.ok Bool.true => do
-                let σ_1 ←
-                  ArbitrarySizedSuchThat.arbitrarySizedST (fun σ_1 => agreesOnExcept testStore_1 σ_1 _1) initSize;
-                match DecOpt.decOpt (Eq (SemanticStoreArith.get σ_1 _1) (Option.some _2)) initSize with
+                let (σ_1 : SemanticStoreArith) ←
+                  ArbitrarySizedSuchThat.arbitrarySizedST
+                      (fun (σ_1 : SemanticStoreArith) => agreesOnExcept σ_in_1 σ_1 x_1) initSize;
+                match DecOpt.decOpt (Eq (SemanticStoreArith.get σ_1 x_1) (Option.some v_1)) initSize with
                   | Except.ok Bool.true => return σ_1
                   | _ => MonadExcept.throw Plausible.Gen.genericFailure
               | _ => MonadExcept.throw Plausible.Gen.genericFailure),
             ]
-    fun size => aux_arb size size testStore_1 _1 _2
+    fun size => aux_arb size size σ_in_1 x_1 v_1
+
+#eval DecOpt.decOpt (Eq (SemanticStoreArith.get testStore "z") (Option.none)) 12
+
+#eval Gen.run (ArbitrarySizedSuchThat.arbitrarySizedST
+                      (fun (σ_1 : SemanticStoreArith) => agreesOnExcept testStore σ_1 "z") 5) 5
+
+#eval Gen.runUntil (.some 50) (ArbitrarySuchThat.arbitraryST (fun (σ : SemanticStoreArith) => InitStateArith testStore "z" (.const 2) σ)) 5
+
 
 def arithEval (σ_old : SemanticStoreArith) (σ : SemanticStoreArith) : Arith.Expr → Option Arith.Expr
 | .const n => pure <| .const n
@@ -248,25 +265,147 @@ inductive EvalArithCmd : SemanticStoreArith → SemanticStoreArith → ArithCmd 
     arithEval σ₀ σ e = .some v →
     InitStateArith σ x v σ' →
     ---
-    EvalArithCmd σ₀ σ (.init x _ e _) σ'
+    EvalArithCmd σ₀ σ (.init x ty e md) σ'
 
   | eval_set :
     arithEval σ₀ σ e = .some v →
     UpdateStateArith σ x v σ' →
     ----
-    EvalArithCmd σ₀ σ (.set x e _) σ'
+    EvalArithCmd σ₀ σ (.set x e md) σ'
 
   | eval_havoc :
     UpdateStateArith σ x v σ' →
     ----
-    EvalArithCmd σ₀ σ (.havoc x _) σ'
+    EvalArithCmd σ₀ σ (.havoc x md) σ'
 
   | eval_assert :
     arithEval σ₀ σ e = .some HasBool.tt →
     ----
-    EvalArithCmd σ₀ σ (.assert _ e _) σ
+    EvalArithCmd σ₀ σ (.assert msg e md) σ
 
   | eval_assume :
     arithEval σ₀ σ e = .some HasBool.tt →
     ----
-    EvalArithCmd σ₀ σ (.assume _ e _) σ
+    EvalArithCmd σ₀ σ (.assume msg e md) σ
+
+#print EvalArithCmd
+
+-- Pretty inscrutable error message!
+/- set_option trace.plausible.deriving.arbitrary true in
+#derive_generator (fun (σ : SemanticStoreArith) => EvalArithCmd testStore testStore (.init x _ (.const 2) _) σ)
+ -/
+
+set_option trace.plausible.deriving.arbitrary true in
+#derive_generator (fun (σ : SemanticStoreArith) => EvalArithCmd σ₁ σ₂ e σ)
+
+instance : ArbitrarySizedSuchThat SemanticStoreArith (fun σ_1 => EvalArithCmd σ₁_1 σ₂_1 e_1 σ_1) where
+  arbitrarySizedST :=
+    let rec aux_arb (initSize : Nat) (size : Nat) (σ₁_1 : SemanticStoreArith) (σ₂_1 : SemanticStoreArith)
+      (e_1 : ArithCmd) : Plausible.Gen SemanticStoreArith :=
+      match size with
+      | Nat.zero =>
+        GeneratorCombinators.backtrack
+          [(1,
+              match e_1 with
+              | ArithCmd.init x ty e md => do
+                let vv ← ArbitrarySizedSuchThat.arbitrarySizedST (fun vv => Eq (arithEval σ₁_1 σ₂_1 e) vv) initSize;
+                match vv with
+                  | Option.some v => do
+                    let (σ_1 : SemanticStoreArith) ←
+                      ArbitrarySizedSuchThat.arbitrarySizedST
+                          (fun (σ_1 : SemanticStoreArith) => InitStateArith σ₂_1 x v σ_1) initSize;
+                    return σ_1
+                  | _ => MonadExcept.throw Plausible.Gen.genericFailure
+              | _ => MonadExcept.throw Plausible.Gen.genericFailure),
+            (1,
+              match e_1 with
+              | ArithCmd.set x e md => do
+                let vv ← ArbitrarySizedSuchThat.arbitrarySizedST (fun vv => Eq (arithEval σ₁_1 σ₂_1 e) vv) initSize;
+                match vv with
+                  | Option.some v => do
+                    let (σ_1 : SemanticStoreArith) ←
+                      ArbitrarySizedSuchThat.arbitrarySizedST
+                          (fun (σ_1 : SemanticStoreArith) => UpdateStateArith σ₂_1 x v σ_1) initSize;
+                    return σ_1
+                  | _ => MonadExcept.throw Plausible.Gen.genericFailure
+              | _ => MonadExcept.throw Plausible.Gen.genericFailure),
+            (1,
+              match e_1 with
+              | ArithCmd.havoc x md => do
+                let (σ_1 : SemanticStoreArith) ← Plausible.Arbitrary.arbitrary;
+                do
+                  let (v : PureExpr.Expr Arith) ←
+                    ArbitrarySizedSuchThat.arbitrarySizedST
+                        (fun (v : PureExpr.Expr Arith) => UpdateStateArith σ₂_1 x v σ_1) initSize;
+                  return σ_1
+              | _ => MonadExcept.throw Plausible.Gen.genericFailure),
+            (1,
+              match e_1 with
+              | ArithCmd.assert msg e md =>
+                match
+                  DecOpt.decOpt (Eq (arithEval σ₁_1 σ₂_1 e) (Option.some (Imperative.HasBool.tt))) initSize with
+                | Except.ok Bool.true => return σ₂_1
+                | _ => MonadExcept.throw Plausible.Gen.genericFailure
+              | _ => MonadExcept.throw Plausible.Gen.genericFailure),
+            (1,
+              match e_1 with
+              | ArithCmd.assume msg e md =>
+                match
+                  DecOpt.decOpt (Eq (arithEval σ₁_1 σ₂_1 e) (Option.some (Imperative.HasBool.tt))) initSize with
+                | Except.ok Bool.true => return σ₂_1
+                | _ => MonadExcept.throw Plausible.Gen.genericFailure
+              | _ => MonadExcept.throw Plausible.Gen.genericFailure)]
+      | Nat.succ size' =>
+        GeneratorCombinators.backtrack
+          [(1,
+              match e_1 with
+              | ArithCmd.init x ty e md => do
+                let vv ← ArbitrarySizedSuchThat.arbitrarySizedST (fun vv => Eq (arithEval σ₁_1 σ₂_1 e) vv) initSize;
+                match vv with
+                  | Option.some v => do
+                    let (σ_1 : SemanticStoreArith) ←
+                      ArbitrarySizedSuchThat.arbitrarySizedST
+                          (fun (σ_1 : SemanticStoreArith) => InitStateArith σ₂_1 x v σ_1) initSize;
+                    return σ_1
+                  | _ => MonadExcept.throw Plausible.Gen.genericFailure
+              | _ => MonadExcept.throw Plausible.Gen.genericFailure),
+            (1,
+              match e_1 with
+              | ArithCmd.set x e md => do
+                let vv ← ArbitrarySizedSuchThat.arbitrarySizedST (fun vv => Eq (arithEval σ₁_1 σ₂_1 e) vv) initSize;
+                match vv with
+                  | Option.some v => do
+                    let (σ_1 : SemanticStoreArith) ←
+                      ArbitrarySizedSuchThat.arbitrarySizedST
+                          (fun (σ_1 : SemanticStoreArith) => UpdateStateArith σ₂_1 x v σ_1) initSize;
+                    return σ_1
+                  | _ => MonadExcept.throw Plausible.Gen.genericFailure
+              | _ => MonadExcept.throw Plausible.Gen.genericFailure),
+            (1,
+              match e_1 with
+              | ArithCmd.havoc x md => do
+                let (σ_1 : SemanticStoreArith) ← Plausible.Arbitrary.arbitrary;
+                do
+                  let (v : PureExpr.Expr Arith) ←
+                    ArbitrarySizedSuchThat.arbitrarySizedST
+                        (fun (v : PureExpr.Expr Arith) => UpdateStateArith σ₂_1 x v σ_1) initSize;
+                  return σ_1
+              | _ => MonadExcept.throw Plausible.Gen.genericFailure),
+            (1,
+              match e_1 with
+              | ArithCmd.assert msg e md =>
+                match
+                  DecOpt.decOpt (Eq (arithEval σ₁_1 σ₂_1 e) (Option.some (Imperative.HasBool.tt))) initSize with
+                | Except.ok Bool.true => return σ₂_1
+                | _ => MonadExcept.throw Plausible.Gen.genericFailure
+              | _ => MonadExcept.throw Plausible.Gen.genericFailure),
+            (1,
+              match e_1 with
+              | ArithCmd.assume msg e md =>
+                match
+                  DecOpt.decOpt (Eq (arithEval σ₁_1 σ₂_1 e) (Option.some (Imperative.HasBool.tt))) initSize with
+                | Except.ok Bool.true => return σ₂_1
+                | _ => MonadExcept.throw Plausible.Gen.genericFailure
+              | _ => MonadExcept.throw Plausible.Gen.genericFailure),
+            ]
+    fun size => aux_arb size size σ₁_1 σ₂_1 e_1
