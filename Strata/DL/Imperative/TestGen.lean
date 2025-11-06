@@ -533,6 +533,7 @@ inductive HasType : (TContext Unit) → (LExpr LMonoTy Unit) → LTy → Prop wh
 
 deriving instance Arbitrary for LMonoTy
 
+set_option trace.plausible.deriving.arbitrary true in
 deriving instance Arbitrary for LTy
 
 #eval Gen.printSamples (Arbitrary.arbitrary : Gen LMonoTy)
@@ -580,7 +581,7 @@ instance {α β m_1 y_1_1} [BEq β] : ArbitrarySizedSuchThat α (fun x_1_1 => @M
 
 derive_generator fun α β tys y => ∃ x, @MapsFind α β tys x y
 
-instance : ArbitrarySizedSuchThat α (fun x_1 => @MapsFind α β tys_1 x_1 y_1) where
+instance [BEq β] : ArbitrarySizedSuchThat α (fun x_1 => @MapsFind α β tys_1 x_1 y_1) where
   arbitrarySizedST :=
     let rec aux_arb (initSize : Nat) (size : Nat) (α_1 : Type) (β_1 : Type) (tys_1 : Maps α β) (y_1 : β) :
       Plausible.Gen α :=
@@ -590,7 +591,36 @@ instance : ArbitrarySizedSuchThat α (fun x_1 => @MapsFind α β tys_1 x_1 y_1) 
           [(1,
               match tys_1 with
               | List.cons m ms => do
+                let (x_1 : α) ← ArbitrarySizedSuchThat.arbitrarySizedST (fun (x_1 : α) => @MapFind α β m x_1 y_1) initSize;
+                return x_1
+              | _ => MonadExcept.throw Plausible.Gen.genericFailure)]
+      | Nat.succ size' =>
+        GeneratorCombinators.backtrack
+          [(1,
+              match tys_1 with
+              | List.cons m ms => do
                 let (x_1 : α) ← ArbitrarySizedSuchThat.arbitrarySizedST (fun (x_1 : α) => MapFind m x_1 y_1) initSize;
+                return x_1
+              | _ => MonadExcept.throw Plausible.Gen.genericFailure),
+            (Nat.succ size',
+              match tys_1 with
+              | List.cons m ms => do
+                let (x_1 : α) ← aux_arb size size α β ms y_1 -- Chamelean doesn't do the right thing here
+                return x_1
+              | _ => MonadExcept.throw Plausible.Gen.genericFailure)])
+    fun size => aux_arb size size α β tys_1 y_1
+
+instance [BEq β] : ArbitrarySizedSuchThat α (fun x_1 => @MapsFind α β tys_1 x_1 y_1) where
+  arbitrarySizedST :=
+    let rec aux_arb (initSize : Nat) (size : Nat) (α_1 : Type) (β_1 : Type) (tys_1 : Maps α β) (y_1 : β) :
+      Plausible.Gen α :=
+      (match size with
+      | Nat.zero =>
+        GeneratorCombinators.backtrack
+          [(1,
+              match tys_1 with
+              | List.cons m ms => do
+                let (x_1 : α) ← ArbitrarySizedSuchThat.arbitrarySizedST (fun (x_1 : α) => @MapFind α β m x_1 y_1) initSize;
                 return x_1
               | _ => MonadExcept.throw Plausible.Gen.genericFailure)]
       | Nat.succ size' =>
@@ -608,6 +638,26 @@ instance : ArbitrarySizedSuchThat α (fun x_1 => @MapsFind α β tys_1 x_1 y_1) 
                 return x_1
               | _ => MonadExcept.throw Plausible.Gen.genericFailure)])
     fun size => aux_arb size size α β tys_1 y_1
+
+/-- Creates a fresh identifier from a list -/
+def getFreshIdent (pre : String) (l : List TyIdentifier) : TyIdentifier :=
+if pre ∉ l then pre else
+getFreshIdentSuffix l.length l
+where
+  getFreshIdentSuffix n l :=
+  match n with
+  | 0 => pre ++ "0"
+  | n'+1 =>
+    let ty := pre ++ (toString (l.length - n))
+    if ty ∉ l then ty
+    else getFreshIdentSuffix n' l
+
+instance {ctx : TContext Unit} : ArbitrarySizedSuchThat TyIdentifier (fun a => TContext.isFresh a ctx) where
+  arbitrarySizedST _ := do
+    let allTypes := ctx.types.flatten.map Prod.snd
+    let allTyVars := allTypes.map LTy.freeVars |>.flatten
+    let pre ← Arbitrary.arbitrary
+    return getFreshIdent pre allTyVars
 
 derive_generator (fun ctx ty => ∃ t, HasType ctx t ty)
 
