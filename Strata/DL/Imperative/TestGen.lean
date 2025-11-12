@@ -106,11 +106,6 @@ def LTy.open (x : TyIdentifier) (xty : LMonoTy) (ty : LTy) : LTy :=
     else
       ty
 
-#print TContext
-#print Maps
-#print Map
-#print Maps.find?
-
 inductive MapFind : Map α β → α → β → Prop where
 | hd : MapFind ((x, y) :: m) x y
 | tl : MapFind m x y → MapFind (p :: m) x y
@@ -147,6 +142,9 @@ inductive MapsInsert : Maps α β → α → β → Maps α β → Prop where
 instance instStringSuchThatIsInt : ArbitrarySizedSuchThat String (fun s => s.isInt) where
   arbitrarySizedST _ := toString <$> (Arbitrary.arbitrary : Gen Int)
 
+#eval
+  let P : String → Prop := fun s => s.isInt
+  Gen.runUntil .none (ArbitrarySizedSuchThat.arbitrarySizedST P 10) 10
 
 inductive HasType : (TContext Unit) → (LExpr LMonoTy Unit) → LTy → Prop where
   | tmdata : ∀ Γ info e ty, HasType Γ e ty →
@@ -225,14 +223,7 @@ deriving instance Arbitrary for LMonoTy
 set_option trace.plausible.deriving.arbitrary true in
 deriving instance Arbitrary for LTy
 
-#eval Gen.printSamples (Arbitrary.arbitrary : Gen LMonoTy)
-
--- inductive Total {α} : α → Prop where
--- | any a : Total a
-
--- derive_generator fun α => ∃ a, @Total α a
-
--- derive_generator fun α β m y_1 => ∃ x_1, @MapFind α β m x_1 y_1
+-- #eval Gen.printSamples (Arbitrary.arbitrary : Gen LMonoTy)
 
 instance {α β m_1 y_1_1} [BEq β] : ArbitrarySizedSuchThat α (fun x_1_1 => @MapFind α β m_1 x_1_1 y_1_1) where
   arbitrarySizedST :=
@@ -261,18 +252,19 @@ instance {α β m_1 y_1_1} [BEq β] : ArbitrarySizedSuchThat α (fun x_1_1 => @M
               match m_1 with
               | List.cons p m => do
                 let (x_1_1 : α) ← aux_arb initSize size α_1 β_1 m y_1_1
-                  -- ArbitrarySizedSuchThat.arbitrarySizedST (fun (x_1_1 : α) => MapFind m x_1_1 y_1_1) initSize;
                 return x_1_1
               | _ => MonadExcept.throw Plausible.Gen.genericFailure)])
     fun size => aux_arb size size α β m_1 y_1_1
 
-#eval Gen.printSamples (ArbitrarySizedSuchThat.arbitrarySizedST (fun x => @MapFind Nat String [(2, "foo")] x "foo") 5)
+#eval
+  let P : Nat → Prop := fun n : Nat => MapFind [((2 : Nat), "foo")] n "foo"
+  Gen.runUntil .none (ArbitrarySizedSuchThat.arbitrarySizedST P 10) 10
 
 -- derive_generator fun α β tys y => ∃ x, @MapsFind α β tys x y
 
-instance [BEq β] : ArbitrarySizedSuchThat α (fun x_1 => @MapsFind α β tys_1 x_1 y_1) where
+instance [DecidableEq β] : ArbitrarySizedSuchThat α (fun x_1 => @MapsFind α β tys_1 x_1 y_1) where
   arbitrarySizedST :=
-    let rec aux_arb (initSize : Nat) (size : Nat) (α_1 : Type) (β_1 : Type) (tys_1 : Maps α β) (y_1 : β) :
+    let rec aux_arb (initSize : Nat) (size : Nat) (α : Type) (β : Type) [DecidableEq β] (tys_1 : Maps α β) (y_1 : β) :
       Plausible.Gen α :=
       (match size with
       | Nat.zero =>
@@ -294,39 +286,52 @@ instance [BEq β] : ArbitrarySizedSuchThat α (fun x_1 => @MapsFind α β tys_1 
             (Nat.succ size',
               match tys_1 with
               | List.cons m ms => do
-                let (x_1 : α) ← aux_arb size size α β ms y_1 -- Chamelean doesn't do the right thing here
+                let (x_1 : α) ← aux_arb initSize size α β ms y_1 -- Chamelean doesn't do the right thing here: it should call itself recursively!
                 return x_1
               | _ => MonadExcept.throw Plausible.Gen.genericFailure)])
     fun size => aux_arb size size α β tys_1 y_1
 
-instance [BEq β] : ArbitrarySizedSuchThat α (fun x_1 => @MapsFind α β tys_1 x_1 y_1) where
+
+#eval
+  let P : Nat → Prop := fun n : Nat => MapsFind [[((2 : Nat), "foo")]] n "foo"
+  Gen.runUntil .none (ArbitrarySizedSuchThat.arbitrarySizedST P 10) 10
+
+
+-- derive_generator fun α β m x_1 => ∃ y_1, @MapFind α β m x_1 y_1
+instance [DecidableEq α] : ArbitrarySizedSuchThat β (fun y_1_1 => @MapFind α β m_1 x_1_1 y_1_1) where
   arbitrarySizedST :=
-    let rec aux_arb (initSize : Nat) (size : Nat) (α_1 : Type) (β_1 : Type) (tys_1 : Maps α β) (y_1 : β) :
-      Plausible.Gen α :=
+    let rec aux_arb (initSize : Nat) (size : Nat) (α : Type) (β : Type) [DecidableEq α] (m_1 : Map α β) (x_1_1 : α) :
+      Plausible.Gen β :=
       (match size with
       | Nat.zero =>
         GeneratorCombinators.backtrack
           [(1,
-              match tys_1 with
-              | List.cons m ms => do
-                let (x_1 : α) ← ArbitrarySizedSuchThat.arbitrarySizedST (fun (x_1 : α) => @MapFind α β m x_1 y_1) initSize;
-                return x_1
+              match m_1 with
+              | List.cons (Prod.mk x y) m =>
+                match DecOpt.decOpt (BEq.beq x x_1_1) initSize with
+                | Except.ok Bool.true => return y
+                | _ => MonadExcept.throw Plausible.Gen.genericFailure
               | _ => MonadExcept.throw Plausible.Gen.genericFailure)]
       | Nat.succ size' =>
         GeneratorCombinators.backtrack
           [(1,
-              match tys_1 with
-              | List.cons m ms => do
-                let (x_1 : α) ← ArbitrarySizedSuchThat.arbitrarySizedST (fun (x_1 : α) => MapFind m x_1 y_1) initSize;
-                return x_1
+              match m_1 with
+              | List.cons (Prod.mk x y) m =>
+                match DecOpt.decOpt (BEq.beq x x_1_1) initSize with
+                | Except.ok Bool.true => return y
+                | _ => MonadExcept.throw Plausible.Gen.genericFailure
               | _ => MonadExcept.throw Plausible.Gen.genericFailure),
             (Nat.succ size',
-              match tys_1 with
-              | List.cons m ms => do
-                let (x_1 : α) ← ArbitrarySizedSuchThat.arbitrarySizedST (fun (x_1 : α) => MapsFind ms x_1 y_1) initSize;
-                return x_1
+              match m_1 with
+              | List.cons p m => do
+                let (y_1_1 : β) ← aux_arb initSize size' α β m x_1_1
+                return y_1_1
               | _ => MonadExcept.throw Plausible.Gen.genericFailure)])
-    fun size => aux_arb size size α β tys_1 y_1
+    fun size => aux_arb size size α β m_1 x_1_1
+
+#eval
+  let P : String → Prop := fun s : String => MapFind [((2 : Nat), "foo")] 2 s
+  Gen.runUntil .none (ArbitrarySizedSuchThat.arbitrarySizedST P 10) 10
 
 /-- Creates a fresh identifier from a list -/
 def getFreshIdent (pre : String) (l : List TyIdentifier) : TyIdentifier :=
@@ -348,10 +353,208 @@ instance {ctx : TContext Unit} : ArbitrarySizedSuchThat TyIdentifier (fun a => T
     let pre ← Arbitrary.arbitrary
     return getFreshIdent pre allTyVars
 
-instance : ArbitrarySuchThat (Maps α β) fun Γ => MapsInsert tys x ty Γ where
-  arbitraryST := sorry
+#print TContext
 
-def test (t : Nat × Nat) := let (x, y) := t; 4
+#eval
+  let P : TyIdentifier → Prop := fun s : String => TContext.isFresh s ⟨[[("foo", _)]], []⟩
+  Gen.runUntil .none (ArbitrarySizedSuchThat.arbitrarySizedST P 10) 10
+
+-- derive_checker fun α β m x => @MapNotFound α β m x
+instance [DecidableEq α_1] : DecOpt (@MapNotFound α_1 β_1 m_1 x_1) where
+  decOpt :=
+    let rec aux_dec (initSize : Nat) (size : Nat) (α : Type) (β : Type) [DecidableEq α] (m_1 : Map α β) (x_1 : α) :
+      Except Plausible.GenError Bool :=
+      (match size with
+      | Nat.zero =>
+        DecOpt.checkerBacktrack
+          [fun (_ : Unit) =>
+            match m_1 with
+            | List.nil => Except.ok Bool.true
+            | _ => Except.ok Bool.false]
+      | Nat.succ size' =>
+        DecOpt.checkerBacktrack
+          [fun (_ : Unit) =>
+            match m_1 with
+            | List.nil => Except.ok Bool.true
+            | _ => Except.ok Bool.false,
+            fun (_ : Unit) =>
+            match m_1 with
+            | List.cons (Prod.mk z w) m =>
+              DecOpt.andOptList [aux_dec initSize size' α β m x_1, DecOpt.decOpt (Ne x_1 z) initSize]
+            | _ => Except.ok Bool.false])
+    fun size => aux_dec size size α_1 β_1 m_1 x_1
+
+
+-- derive_generator fun α β m x_1_1 ty_1_1 => ∃ m', @MapReplace α β m x_1_1 ty_1_1 m'
+instance [DecidableEq α] : ArbitrarySizedSuchThat (Map α β) (fun m'_1 => @MapReplace α β m_1 x_1_1_1 ty_1_1_1 m'_1) where
+  arbitrarySizedST :=
+    let rec aux_arb (initSize : Nat) (size : Nat) (α : Type) (β : Type) [DecidableEq α] (m_1 : Map α β) (x_1_1_1 : α)
+      (ty_1_1_1 : β) : Plausible.Gen (Map α β) :=
+      (match size with
+      | Nat.zero =>
+        GeneratorCombinators.backtrack
+          [(1,
+              match m_1 with
+              | List.nil => return List.nil
+              | _ => MonadExcept.throw Plausible.Gen.genericFailure),
+            (1,
+              match m_1 with
+              | List.cons (Prod.mk x z) m =>
+                match DecOpt.decOpt (BEq.beq x x_1_1_1) initSize with
+                | Except.ok Bool.true => return List.cons (Prod.mk x_1_1_1 ty_1_1_1) m
+                | _ => MonadExcept.throw Plausible.Gen.genericFailure
+              | _ => MonadExcept.throw Plausible.Gen.genericFailure)]
+      | Nat.succ size' =>
+        GeneratorCombinators.backtrack
+          [(1,
+              match m_1 with
+              | List.nil => return List.nil
+              | _ => MonadExcept.throw Plausible.Gen.genericFailure),
+            (1,
+              match m_1 with
+              | List.cons (Prod.mk x z) m =>
+                match DecOpt.decOpt (BEq.beq x x_1_1_1) initSize with
+                | Except.ok Bool.true => return List.cons (Prod.mk x_1_1_1 ty_1_1_1) m
+                | _ => MonadExcept.throw Plausible.Gen.genericFailure
+              | _ => MonadExcept.throw Plausible.Gen.genericFailure),
+            (Nat.succ size',
+              match m_1 with
+              | List.cons (Prod.mk z w) m =>
+                match DecOpt.decOpt (Ne x_1_1_1 z) initSize with
+                | Except.ok Bool.true => do
+                  let (m' : Map α β) ← aux_arb initSize size' α β m x_1_1_1 ty_1_1_1
+                  return List.cons (Prod.mk z w) m'
+                | _ => MonadExcept.throw Plausible.Gen.genericFailure
+              | _ => MonadExcept.throw Plausible.Gen.genericFailure)])
+    fun size => aux_arb size size α β m_1 x_1_1_1 ty_1_1_1
+
+-- derive_checker fun α β m x => @MapsNotFound α β m x
+
+instance [DecidableEq α_1] : DecOpt (@MapsNotFound α_1 β_1 m_1 x_1) where
+  decOpt :=
+    let rec aux_dec (initSize : Nat) (size : Nat) (α : Type) (β : Type) [DecidableEq α] (m_1 : Maps α β) (x_1 : α) :
+      Except Plausible.GenError Bool :=
+      (match size with
+      | Nat.zero =>
+        DecOpt.checkerBacktrack
+          [fun (_ : Unit) =>
+            match m_1 with
+            | List.nil => Except.ok Bool.true
+            | _ => Except.ok Bool.false]
+      | Nat.succ size' =>
+        DecOpt.checkerBacktrack
+          [fun (_ : Unit) =>
+            match m_1 with
+            | List.nil => Except.ok Bool.true
+            | _ => Except.ok Bool.false,
+            fun (_ : Unit) =>
+            match m_1 with
+            | List.cons m ms =>
+              DecOpt.andOptList [aux_dec initSize size' α β ms x_1, DecOpt.decOpt (MapNotFound m x_1) initSize]
+            | _ => Except.ok Bool.false])
+    fun size => aux_dec size size α_1 β_1 m_1 x_1
+
+-- derive_generator fun α β tys_1 x_1 ty_1 => ∃ (Γ_1 : Maps α β), @MapsReplace α β tys_1 x_1 ty_1 Γ_1
+instance [DecidableEq α] : ArbitrarySizedSuchThat (Maps α β) (fun Γ_1_1 => @MapsReplace α β tys_1_1 x_1_1 ty_1_1 Γ_1_1) where
+  arbitrarySizedST :=
+    let rec aux_arb (initSize : Nat) (size : Nat) (α : Type) (β : Type) [DecidableEq α] (tys_1_1 : Maps α β) (x_1_1 : α)
+      (ty_1_1 : β) : Plausible.Gen (Maps α β) :=
+      (match size with
+      | Nat.zero =>
+        GeneratorCombinators.backtrack
+          [(1,
+              match tys_1_1 with
+              | List.nil => return List.nil
+              | _ => MonadExcept.throw Plausible.Gen.genericFailure)]
+      | Nat.succ size' =>
+        GeneratorCombinators.backtrack
+          [(1,
+              match tys_1_1 with
+              | List.nil => return List.nil
+              | _ => MonadExcept.throw Plausible.Gen.genericFailure),
+            (Nat.succ size',
+              match tys_1_1 with
+              | List.cons m ms => do
+                let (m' : Map α β) ←
+                  ArbitrarySizedSuchThat.arbitrarySizedST (fun (m' : Map α β) => @MapReplace α β m x_1_1 ty_1_1 m') initSize;
+                do
+                  let (ms' : Maps α β) ←
+                    aux_arb initSize size α β ms x_1_1 ty_1_1
+                  return List.cons m' ms'
+              | _ => MonadExcept.throw Plausible.Gen.genericFailure)])
+    fun size => aux_arb size size α β tys_1_1 x_1_1 ty_1_1
+
+-- derive_generator (fun α β tys_1 x_1 => ∃ (z : β), @MapsFind α β tys_1 x_1 z)
+instance [DecidableEq α][DecidableEq β] : ArbitrarySizedSuchThat β (fun z_1 => @MapsFind α β tys_1_1 x_1_1 z_1) where
+  arbitrarySizedST :=
+    let rec aux_arb (initSize : Nat) (size : Nat) (α : Type) (β : Type) [DecidableEq α] [DecidableEq β] (tys_1_1 : Maps α β) (x_1_1 : α) :
+      Plausible.Gen β :=
+      (match size with
+      | Nat.zero =>
+        GeneratorCombinators.backtrack
+          [(1,
+              match tys_1_1 with
+              | List.cons m ms => do
+                let (z_1 : β) ← ArbitrarySizedSuchThat.arbitrarySizedST (fun (z_1 : β) => MapFind m x_1_1 z_1) initSize;
+                return z_1
+              | _ => MonadExcept.throw Plausible.Gen.genericFailure)]
+      | Nat.succ size' =>
+        GeneratorCombinators.backtrack
+          [(1,
+              match tys_1_1 with
+              | List.cons m ms => do
+                let (z_1 : β) ← ArbitrarySizedSuchThat.arbitrarySizedST (fun (z_1 : β) => MapFind m x_1_1 z_1) initSize;
+                return z_1
+              | _ => MonadExcept.throw Plausible.Gen.genericFailure),
+            (Nat.succ size',
+              match tys_1_1 with
+              | List.cons m ms => do
+                let (z_1 : β) ← aux_arb initSize size' α β ms x_1_1
+                return z_1
+              | _ => MonadExcept.throw Plausible.Gen.genericFailure)])
+    fun size => aux_arb size size α β tys_1_1 x_1_1
+
+-- derive_generator (fun α β tys x ty => ∃ Γ, @MapsInsert α β tys x ty Γ)
+
+instance [DecidableEq α] [DecidableEq β] : ArbitrarySizedSuchThat (Maps α β) (fun Γ_1 => @MapsInsert α β tys_1 x_1 ty_1 Γ_1) where
+  arbitrarySizedST :=
+    let rec aux_arb (initSize : Nat) (size : Nat) (α_1 : Type) (β_1 : Type) (tys_1 : Maps α β) (x_1 : α)
+      (ty_1 : β) : Plausible.Gen (Maps α β) :=
+      (match size with
+      | Nat.zero =>
+        GeneratorCombinators.backtrack
+          [(1, do
+              let (z : β) ← ArbitrarySizedSuchThat.arbitrarySizedST (fun (z : β) => MapsFind tys_1 x_1 z) initSize;
+              do
+                let (Γ_1 : Maps α β) ←
+                  ArbitrarySizedSuchThat.arbitrarySizedST (fun (Γ_1 : Maps α β) => MapsReplace tys_1 x_1 ty_1 Γ_1)
+                      initSize;
+                return Γ_1),
+            (1,
+              match tys_1 with
+              | List.cons m ms =>
+                match DecOpt.decOpt (MapsNotFound (List.cons m ms) x_1) initSize with
+                | Except.ok Bool.true => return List.cons (List.cons (Prod.mk x_1 ty_1) m) ms
+                | _ => MonadExcept.throw Plausible.Gen.genericFailure
+              | _ => MonadExcept.throw Plausible.Gen.genericFailure)]
+      | Nat.succ size' =>
+        GeneratorCombinators.backtrack
+          [(1, do
+              let (z : β) ← ArbitrarySizedSuchThat.arbitrarySizedST (fun (z : β) => MapsFind tys_1 x_1 z) initSize;
+              do
+                let (Γ_1 : Maps α β) ←
+                  ArbitrarySizedSuchThat.arbitrarySizedST (fun (Γ_1 : Maps α β) => MapsReplace tys_1 x_1 ty_1 Γ_1)
+                      initSize;
+                return Γ_1),
+            (1,
+              match tys_1 with
+              | List.cons m ms =>
+                match DecOpt.decOpt (MapsNotFound (List.cons m ms) x_1) initSize with
+                | Except.ok Bool.true => return List.cons (List.cons (Prod.mk x_1 ty_1) m) ms
+                | _ => MonadExcept.throw Plausible.Gen.genericFailure
+              | _ => MonadExcept.throw Plausible.Gen.genericFailure),
+            ])
+    fun size => aux_arb size size α β tys_1 x_1 ty_1
 
 -- derive_generator (fun ctx ty => ∃ t, HasType ctx t ty)
 
@@ -428,7 +631,7 @@ instance : ArbitrarySizedSuchThat (LExpr LMonoTy Unit) (fun t_1 => HasType ctx_1
                     ArbitrarySuchThat.arbitraryST
                         (fun (Γ' : Maps (Identifier Unit) LTy) =>
                           MapsInsert (Lambda.TContext.types ctx_1) x x_ty' Γ')
-                let e ← aux_arb initSize size {ctx_1 with types := Γ'} ty_1
+                let e ← aux_arb initSize size' {ctx_1 with types := Γ'} ty_1
                 let e := LExpr.varClose 0 ⟨x, x_ty⟩ e
                 return .abs x_ty e
               | _ => MonadExcept.throw Plausible.Gen.genericFailure),
@@ -477,3 +680,11 @@ instance : ArbitrarySizedSuchThat (LExpr LMonoTy Unit) (fun t_1 => HasType ctx_1
                     return Lambda.LExpr.eq e1 e2
               | _ => MonadExcept.throw Plausible.Gen.genericFailure)])
     fun size => aux_arb size size ctx_1 ty_1
+
+def example_ctx : TContext Unit := ⟨[], []⟩
+def example_ty : LTy := .forAll [] <| .tcons "arrow" [.tcons "int" [], .tcons "bool" []]
+
+
+-- #eval
+--   let P : LExpr LMonoTy Unit → Prop := fun t => HasType example_ctx t example_ty
+--   Gen.runUntil .none (ArbitrarySizedSuchThat.arbitrarySizedST P 10) 10
