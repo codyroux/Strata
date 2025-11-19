@@ -3,6 +3,7 @@ import Strata.DL.Lambda.LExpr
 import Strata.DL.Lambda.LExprTypeSpec
 import Strata.DL.Lambda.LExprTypeEnv
 import Strata.DL.Lambda.LExprWF
+import Strata.DL.Lambda.LExprT
 import Plausible.DeriveArbitrary
 import Plausible.Attr
 import Plausible.Chamelean.ArbitrarySizedSuchThat
@@ -831,6 +832,24 @@ abbrev example_ty : LTy := .forAll [] <| .tcons "arrow" [.tcons "bool" [], .tcon
 
 #eval varClose (IDMeta := Unit) 0 ⟨"x", .none⟩ (.fvar "x" (.some <| .tcons "bool" []))
 
+#print TEnv
+#print TState
+#print Factory
+#print KnownTypes
+#print KnownType
+
+def emptyFactory : @Factory Unit := #[]
+def knownTypes : KnownTypes := [⟨"bool", 0⟩, ⟨"int", 0⟩]
+
+#check List.range
+
 #time #eval
-  let P : LExpr LMonoTy Unit → Prop := fun t => HasType example_ctx t example_ty
-  Gen.runUntil .none (ArbitrarySizedSuchThat.arbitrarySizedST P 4) 4
+  for i in List.range 10 do
+    let P : LExpr LMonoTy Unit → Prop := fun t => HasType example_ctx t example_ty
+    let t ← Gen.runUntil .none (ArbitrarySizedSuchThat.arbitrarySizedST P 4) 4
+    let state : TState := {}
+    let env : TEnv Unit := ⟨example_ctx, state, emptyFactory, knownTypes⟩
+    let t' := LExpr.annotate env t
+    let res := t'.isOk
+    if !res then
+      IO.println s!"Failed({i}): {t}\n{t'.map (fun _ => ())}"
