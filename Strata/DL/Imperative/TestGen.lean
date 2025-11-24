@@ -177,6 +177,7 @@ inductive MapsNotFound : Maps α β → α → Prop where
 inductive MapsInsert : Maps α β → α → β → Maps α β → Prop where
 | found : MapsFind ms x z → MapsReplace ms x y ms' → MapsInsert ms x y ms'
 | notFound : MapsNotFound (m::ms) x → MapsInsert (m::ms) x y (((x,y)::m)::ms)
+| empty : MapsInsert [] x y [[(x, y)]]
 
 
 instance instStringSuchThatIsInt : ArbitrarySizedSuchThat String (fun s => s.isInt) where
@@ -926,24 +927,27 @@ instance : ArbitrarySizedSuchThat (LExpr LMonoTy Unit) (fun t_1 => HasType fact_
                     let (e2 : LExpr LMonoTy Unit) ← aux_arb initSize size' ctx_1 ty;
                     return Lambda.LExpr.eq e1 e2
               | _ => MonadExcept.throw Plausible.Gen.genericFailure),
-            (1, do
+            (10, do
               let (f : LFunc Unit) ←
                 @ArbitrarySizedSuchThat.arbitrarySizedST _
                     (fun (f : LFunc Unit) =>
                       @ArrayFind (@Lambda.LFunc (@Unit)) (@Lambda.LContext.functions (@Unit) fact_1) f)
                     _ initSize;
               do
-                let (unk_0 : Identifier Unit) ←
-                  @ArbitrarySizedSuchThat.arbitrarySizedST _
-                      (fun (unk_0 : Identifier Unit) =>
-                        @Eq (@Lambda.Identifier (@Unit)) unk_0 (@Lambda.LFunc.name (@Unit) f))
-                      _ initSize;
-                return Lambda.LExpr.op unk_0 (Option.none))
+                match f.type with
+                | .ok f_ty =>
+                  if f_ty  = ty_1 then
+                    return Lambda.LExpr.op f.name (Option.none)
+                  else throw Plausible.Gen.genericFailure
+                | _ => throw Plausible.Gen.genericFailure
+                )
         ])
     fun size => aux_arb size size ctx_1 ty_1
 
 #print LContext
 #print Factory
+
+#eval Gen.printSamples (Arbitrary.arbitrary : Gen LMonoTy)
 
 def knownTypes : KnownTypes := Std.HashMap.ofList [⟨"bool", 0⟩, ⟨"int", 0⟩, ⟨"arrow", 2⟩]
 
@@ -955,7 +959,7 @@ abbrev example_lctx : LContext Unit :=
                       functions := Lambda.IntBoolFactory
 }
 
-abbrev example_ctx : TContext Unit := ⟨[[("x", .forAll [] (.tcons "int" []))]], []⟩
+abbrev example_ctx : TContext Unit := ⟨[[]], []⟩
 -- abbrev example_ty : LTy := .forAll [] <| .tcons "bool" []
 abbrev example_ty : LTy := .forAll [] <| .tcons "arrow" [.tcons "bool" [], .tcons "bool" []]
 
@@ -998,18 +1002,68 @@ def example_lstate :=
 
 #eval LExpr.eval 100 example_lstate <| .app (.abs .none (.bvar 0)) (.const <| .boolConst true)
 
-#time #eval
-  for i in List.range 10 do
-    let P : LExpr LMonoTy Unit → Prop := fun t => HasType example_lctx example_ctx t example_ty
-    let t ← Gen.runUntil .none (ArbitrarySizedSuchThat.arbitrarySizedST P 4) 4
-    let state : TState := {}
-    let env : TEnv Unit := { genEnv := ⟨example_ctx, state⟩ }
-    let t' := LExpr.annotate example_lctx env t
-    let res := t'.isOk
-    if !res then
-      IO.println s!"Failed({i}): {t.eval 1000 example_lstate}\n{t'.map (fun _ => ())}"
 
-#print Plausible.Shrinkable
+#print LExpr
+#print Shrinkable
+#print IdentT
+#print Identifier
+
+instance [Inhabited β] : Shrinkable (LExpr α β) where
+  shrink t :=
+  let rec aux (t : LExpr α β) : List (LExpr α β) :=
+  match t with
+    | .fvar _ _
+    | .bvar _
+    | .op _ _
+    | .const _ -- We're being a bit lazy here for the time being
+              => []
+    | .app t u =>
+      t :: u :: (.app <$> aux t <*> aux u)
+    | .abs ty t => (LExpr.varOpen 0 ⟨⟨"x", default⟩, ty⟩ t) :: (.abs ty <$> aux t) -- IDK about the `"x"`
+    | .eq t u => t :: u :: (.eq <$> aux t <*> aux u)
+    | .ite cond t u => cond :: t :: u :: (.ite <$> aux cond <*> aux t <*> aux u)
+    | .quant k ty tr t => (LExpr.varOpen 0 ⟨⟨"x", default⟩, ty⟩ t) :: (.quant k ty tr <$> aux t)
+    | .mdata i t => t :: (.mdata i <$> aux t)
+  aux t
+
+#check List.find?
+#print TState
+-- Shrinks an element of `α` recursively.
+partial def shrinkFunAux [Shrinkable α] (f : α → Bool) (x : α) : Option α := do
+  let candidates := Shrinkable.shrink x
+  let y ← candidates.find? f
+  let z := shrinkFunAux f y
+  z <|> some y
+
+def shrinkFun [Shrinkable α] (f : α → Bool) (x : α) : α :=
+let shrinked := shrinkFunAux f x
+match shrinked with
+| .some y => y
+| .none => x
+
+#eval Shrinkable.shrink (LExpr.eq (TypeType := Unit) (IDMeta := Unit) (.fvar "x" .none) (.fvar "y" .none))
+
+#eval shrinkFun (fun n : Nat => n % 3 == 2) 42
+
+def canAnnotate (t : LExpr LMonoTy Unit) : Bool :=
+    let state : TState := {}
+  let env : TEnv Unit := { genEnv := ⟨example_ctx, state⟩ }
+  let t' := LExpr.annotate example_lctx env t
+  t'.isOk
+
+#print Factory
+#print LFunc
+
+#time #eval do
+  IO.println s!"Generating terms of type\n{example_ty}\nin context\n{repr example_ctx}\nin \
+                factory\n{example_lctx.functions.map (fun f : LFunc Unit => f.name)}\n"
+  for i in List.range 100 do
+    let P : LExpr LMonoTy Unit → Prop := fun t => HasType example_lctx example_ctx t example_ty
+    let t ← Gen.runUntil .none (ArbitrarySizedSuchThat.arbitrarySizedST P 5) 5
+    -- IO.println s!"Generated {t}"
+    if !(canAnnotate t) then
+      IO.println s!"FAILED({i}): {t}\n\nSHRUNK TO:\n{shrinkFun (not ∘ canAnnotate) t}\n\n"
+
 
 structure MyPair where
   first : Nat
@@ -1042,6 +1096,19 @@ inductive Foo : C → Prop where
 | constr {c : C} : Foo { c with fld := a' } → Foo ⟨ (a * 2) + 1 ⟩
 
 derive_generator ∃ c, Foo c
+
+#print Info
+#print QuantifierKind
+#print LConst
+#print LMonoTy
+#print LTy
+#print LExpr
+#print TContext
+#print Maps
+#print Map
+#print TypeAlias
+#print Identifier
+#print TyIdentifier
 
 opaque toMono : LTy → LMonoTy
 
