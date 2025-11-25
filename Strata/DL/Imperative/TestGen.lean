@@ -1064,6 +1064,23 @@ def canAnnotate (t : LExpr LMonoTy Unit) : Bool :=
     if !(canAnnotate t) then
       IO.println s!"FAILED({i}): {t}\n\nSHRUNK TO:\n{shrinkFun (not ∘ canAnnotate) t}\n\n"
 
+def isIntConst (t : LExpr LMonoTy Unit) : Bool :=
+match t with
+| .const (.intConst _) => true
+| _ => false
+
+
+#time #eval do
+  IO.println s!"Generating terms of type\n{example_ty}\nin context\n{repr example_ctx}\nin \
+                factory\n{example_lctx.functions.map (fun f : LFunc Unit => f.name)}\n"
+  for i in List.range 100 do
+    let P : LExpr LMonoTy Unit → Prop := fun t => HasType example_lctx example_ctx t (.forAll [] (.tcons "int" []))
+    let t ← Gen.runUntil .none (ArbitrarySizedSuchThat.arbitrarySizedST P 5) 5
+    let t' := t.eval 1000 example_lstate
+    if !(isIntConst t') then
+      IO.println s!"FAILED({i}): {t}\n\nSHRUNK TO:\n{shrinkFun (not ∘ canAnnotate) t}\n\n"
+
+
 
 structure MyPair where
   first : Nat
