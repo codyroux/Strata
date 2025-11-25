@@ -1,4 +1,3 @@
-import Strata.DL.Imperative.CmdSemantics
 import Strata.DL.Lambda.LExpr
 import Strata.DL.Lambda.LExprTypeSpec
 import Strata.DL.Lambda.LExprTypeEnv
@@ -14,71 +13,11 @@ import Plausible.Chamelean.DecOpt
 import Plausible.Chamelean.DeriveConstrainedProducer
 import Plausible.Chamelean.DeriveChecker
 
-open Imperative Plausible
-
-inductive ArithExpr where
-| const : Int → ArithExpr
-| var   : String → ArithExpr
-| add   : ArithExpr → ArithExpr → ArithExpr
-| lNeg   : ArithExpr → ArithExpr -- logical negation: neg 0 = 1, neg (non-zero) = 0
-deriving Repr, BEq, DecidableEq
-
-set_option trace.plausible.deriving.arbitrary true in
-deriving instance Arbitrary for ArithExpr
-
-#print PureExpr
-
-abbrev Arith : PureExpr where
-  Ident := String
-  Expr  := ArithExpr
-  Ty    := Unit
-  TyContext := Unit
-  TyEnv := String → Unit
-  EvalEnv := String → Int
-  EqIdent := by infer_instance
-
-class Pointed
-
--- instance : Arbitrary
-
-/-
-inductive Imperative.Cmd : PureExpr → Type
-number of parameters: 1
-constructors:
-Imperative.Cmd.init : {P : PureExpr} → P.Ident → P.Ty → P.Expr → optParam (MetaData P) MetaData.empty → Cmd P
-Imperative.Cmd.set : {P : PureExpr} → P.Ident → P.Expr → optParam (MetaData P) MetaData.empty → Cmd P
-Imperative.Cmd.havoc : {P : PureExpr} → P.Ident → optParam (MetaData P) MetaData.empty → Cmd P
-Imperative.Cmd.assert : {P : PureExpr} → String → P.Expr → optParam (MetaData P) MetaData.empty → Cmd P
-Imperative.Cmd.assume : {P : PureExpr} → String → P.Expr → optParam (MetaData P) MetaData.empty → Cmd P
--/
-#print Imperative.Cmd
-
--- set_option diagnostics true
-
-
-instance : HasFvar Arith where
-  mkFvar id := ArithExpr.var id
-  getFvar e := match e with
-    | ArithExpr.var id => some id
-    | _ => none
-
-instance : HasBool Arith where
-  tt := ArithExpr.const 1
-  ff := ArithExpr.const 0
-
-instance [Decidable P] : DecOpt P := by infer_instance
-
-instance : DecidableEq Arith.Expr := by infer_instance
-
-#print Lambda.LExpr
-#print Lambda.Info
-#print Lambda.QuantifierKind
+open Plausible
 
 deriving instance Arbitrary for Lambda.Identifier
 deriving instance Arbitrary for Lambda.Info
 deriving instance Arbitrary for Lambda.QuantifierKind
-
-#print Gen.chooseNat
 
 instance instArbitraryRat : Arbitrary Rat where
   arbitrary := do
@@ -92,37 +31,12 @@ deriving instance Arbitrary for Lambda.LExpr
 
 #eval Gen.printSamples (Arbitrary.arbitrary : Gen <| Lambda.LExpr String String)
 
-#print Lambda.TContext
-#print Lambda.LContext
-
-#print Lambda.LExpr.HasType
-
-#print DecidableEq
-
 -- derive_generator (fun idMeta inst env ctx ty => ∃ t, @Lambda.LExpr.HasType idMeta inst env ctx t ty)
 
 open Lambda
 open LTy
 
-/--
-Close `ty` by `x`, i.e., add `x` as a bound type variable.
--/
-def LTy.close (x : TyIdentifier) (ty : LTy) : LTy :=
-  match ty with
-  | .forAll vars lty => .forAll (x :: vars) lty
-
-/--
-Open `ty` by instantiating the bound type variable `x` with `xty`.
--/
-def LTy.open (x : TyIdentifier) (xty : LMonoTy) (ty : LTy) : LTy :=
-  match ty with
-  | .forAll vars lty =>
-    if x ∈ vars then
-      let S := [(x, xty)]
-      .forAll (vars.removeAll [x]) (LMonoTy.subst [S] lty)
-    else
-      ty
-
+-- FIXME: can I use the original?
 def varClose (k : Nat) (x : Identifier Unit) (e : LExpr LMonoTy Unit) : LExpr LMonoTy Unit :=
   match e with
   | .const c => .const c
@@ -137,6 +51,8 @@ def varClose (k : Nat) (x : Identifier Unit) (e : LExpr LMonoTy Unit) : LExpr LM
   | .ite c t e => .ite (varClose k x c) (varClose k x t) (varClose k x e)
   | .eq e1 e2 => .eq (varClose k x e1) (varClose k x e2)
 
+
+-- We make a bunch of functions inductive predicates to play nice with Chamelean.
 inductive MapFind : Map α β → α → β → Prop where
 | hd : MapFind ((x, y) :: m) x y
 | tl : MapFind m x y → MapFind (p :: m) x y
@@ -153,12 +69,10 @@ inductive MapsFind₂ : Maps α β → α × β → Prop where
 | hd : MapFind₂ m (x, y) → MapsFind₂ (m :: ms) (x, y)
 | tl : MapsFind₂ ms (x, y) → MapsFind₂ (m :: ms) (x, y)
 
-
 inductive MapReplace : Map α β → α → β → Map α β → Prop where
 | nil : MapReplace [] x y []
 | consFound : MapReplace ((x, z)::m) x y ((x, y)::m)
 | consNotFound : x ≠ z → MapReplace m x y m' → MapReplace ((z, w) :: m) x y ((z, w) :: m')
-
 
 inductive MapsReplace : Maps α β → α → β → Maps α β → Prop where
 | nil : MapsReplace [] x y []
@@ -179,7 +93,6 @@ inductive MapsInsert : Maps α β → α → β → Maps α β → Prop where
 | notFound : MapsNotFound (m::ms) x → MapsInsert (m::ms) x y (((x,y)::m)::ms)
 | empty : MapsInsert [] x y [[(x, y)]]
 
-
 instance instStringSuchThatIsInt : ArbitrarySizedSuchThat String (fun s => s.isInt) where
   arbitrarySizedST _ := toString <$> (Arbitrary.arbitrary : Gen Int)
 
@@ -187,6 +100,7 @@ instance instStringSuchThatIsInt : ArbitrarySizedSuchThat String (fun s => s.isI
   let P : String → Prop := fun s => s.isInt
   Gen.runUntil .none (ArbitrarySizedSuchThat.arbitrarySizedST P 10) 10
 
+-- FIXME: remove this
 def ArrayFind (a : Array α) (x : α)  := x ∈ a
 
 instance instArrayFindSuchThat {α} {a} : ArbitrarySizedSuchThat α (fun x => ArrayFind a x) where
@@ -345,25 +259,9 @@ inductive HasType : (LContext Unit) → (TContext Unit) → (LExpr LMonoTy Unit)
             HasType C Γ (.op f.name none) ty
 
   -- -- We only generate monomorphic types for now
-  -- -- `ty` is more general than `e_ty`, so we can instantiate `ty` with `e_ty`.
-  -- | tinst : ∀ Γ e ty e_ty x x_ty,
-  --           HasType C Γ e ty →
-  --           e_ty = LTy.open x x_ty ty →
-  --           HasType C Γ e e_ty
-
-  -- -- The generalization rule will let us do things like the following:
-  -- -- `(·ftvar "a") → (.ftvar "a")` (or `a → a`) will be generalized to
-  -- -- `(.btvar 0) → (.btvar 0)` (or `∀a. a → a`), assuming `a` is not in the
-  -- -- context.
-  -- | tgen : ∀ Γ e a ty,
-  --           HasType C Γ e ty →
-  --           TContext.isFresh a Γ →
-  --           HasType C Γ e (LTy.close a ty)
 
 instance : Arbitrary TyIdentifier where
   arbitrary := Gen.oneOf #[return "A", return "B", return "C", return "D"]
-
-#print LMonoTy
 
 instance : Arbitrary LMonoTy where
   arbitrary :=
@@ -399,7 +297,7 @@ instance {α β m_1 y_1_1} [BEq β] : ArbitrarySizedSuchThat α (fun x_1_1 => @M
         GeneratorCombinators.backtrack
           [(1,
               match m_1 with
-              | List.cons (Prod.mk x y) m =>
+              | List.cons (Prod.mk x y) _m =>
                 match DecOpt.decOpt (BEq.beq y y_1_1) initSize with
                 | Except.ok Bool.true => return x
                 | _ => MonadExcept.throw Plausible.Gen.genericFailure
@@ -408,14 +306,14 @@ instance {α β m_1 y_1_1} [BEq β] : ArbitrarySizedSuchThat α (fun x_1_1 => @M
         GeneratorCombinators.backtrack
           [(1,
               match m_1 with
-              | List.cons (Prod.mk x y) m =>
+              | List.cons (Prod.mk x y) _m =>
                 match DecOpt.decOpt (BEq.beq y y_1_1) initSize with
                 | Except.ok Bool.true => return x
                 | _ => MonadExcept.throw Plausible.Gen.genericFailure
               | _ => MonadExcept.throw Plausible.Gen.genericFailure),
             (Nat.succ size',
               match m_1 with
-              | List.cons p m => do
+              | List.cons _p m => do
                 let (x_1_1 : α) ← aux_arb initSize size α_1 β_1 m y_1_1
                 return x_1_1
               | _ => MonadExcept.throw Plausible.Gen.genericFailure)])
@@ -436,7 +334,7 @@ instance [DecidableEq β] : ArbitrarySizedSuchThat α (fun x_1 => @MapsFind α �
         GeneratorCombinators.backtrack
           [(1,
               match tys_1 with
-              | List.cons m ms => do
+              | List.cons m _ms => do
                 let (x_1 : α) ← ArbitrarySizedSuchThat.arbitrarySizedST (fun (x_1 : α) => @MapFind α β m x_1 y_1) initSize;
                 return x_1
               | _ => MonadExcept.throw Plausible.Gen.genericFailure)]
@@ -444,13 +342,13 @@ instance [DecidableEq β] : ArbitrarySizedSuchThat α (fun x_1 => @MapsFind α �
         GeneratorCombinators.backtrack
           [(1,
               match tys_1 with
-              | List.cons m ms => do
+              | List.cons m _ms => do
                 let (x_1 : α) ← ArbitrarySizedSuchThat.arbitrarySizedST (fun (x_1 : α) => MapFind m x_1 y_1) initSize;
                 return x_1
               | _ => MonadExcept.throw Plausible.Gen.genericFailure),
             (Nat.succ size',
               match tys_1 with
-              | List.cons m ms => do
+              | List.cons _m ms => do
                 let (x_1 : α) ← aux_arb initSize size α β ms y_1 -- Chamelean doesn't do the right thing here: it should call itself recursively!
                 return x_1
               | _ => MonadExcept.throw Plausible.Gen.genericFailure)])
@@ -472,7 +370,7 @@ instance [DecidableEq α] : ArbitrarySizedSuchThat β (fun y_1_1 => @MapFind α 
         GeneratorCombinators.backtrack
           [(1,
               match m_1 with
-              | List.cons (Prod.mk x y) m =>
+              | List.cons (Prod.mk x y) _m =>
                 match DecOpt.decOpt (BEq.beq x x_1_1) initSize with
                 | Except.ok Bool.true => return y
                 | _ => MonadExcept.throw Plausible.Gen.genericFailure
@@ -481,14 +379,14 @@ instance [DecidableEq α] : ArbitrarySizedSuchThat β (fun y_1_1 => @MapFind α 
         GeneratorCombinators.backtrack
           [(1,
               match m_1 with
-              | List.cons (Prod.mk x y) m =>
+              | List.cons (Prod.mk x y) _m =>
                 match DecOpt.decOpt (BEq.beq x x_1_1) initSize with
                 | Except.ok Bool.true => return y
                 | _ => MonadExcept.throw Plausible.Gen.genericFailure
               | _ => MonadExcept.throw Plausible.Gen.genericFailure),
             (Nat.succ size',
               match m_1 with
-              | List.cons p m => do
+              | List.cons _p m => do
                 let (y_1_1 : β) ← aux_arb initSize size' α β m x_1_1
                 return y_1_1
               | _ => MonadExcept.throw Plausible.Gen.genericFailure)])
@@ -546,7 +444,7 @@ instance [DecidableEq α_1] : DecOpt (@MapNotFound α_1 β_1 m_1 x_1) where
             | _ => Except.ok Bool.false,
             fun (_ : Unit) =>
             match m_1 with
-            | List.cons (Prod.mk z w) m =>
+            | List.cons (Prod.mk z _w) m =>
               DecOpt.andOptList [aux_dec initSize size' α β m x_1, DecOpt.decOpt (Ne x_1 z) initSize]
             | _ => Except.ok Bool.false])
     fun size => aux_dec size size α_1 β_1 m_1 x_1
@@ -568,7 +466,7 @@ instance [DecidableEq α] : ArbitrarySizedSuchThat (Map α β) (fun m'_1 => @Map
               | _ => MonadExcept.throw Plausible.Gen.genericFailure),
             (1,
               match m_1 with
-              | List.cons (Prod.mk x z) m =>
+              | List.cons (Prod.mk x _z) m =>
                 match DecOpt.decOpt (BEq.beq x x_1_1_1) initSize with
                 | Except.ok Bool.true => return List.cons (Prod.mk x_1_1_1 ty_1_1_1) m
                 | _ => MonadExcept.throw Plausible.Gen.genericFailure
@@ -581,7 +479,7 @@ instance [DecidableEq α] : ArbitrarySizedSuchThat (Map α β) (fun m'_1 => @Map
               | _ => MonadExcept.throw Plausible.Gen.genericFailure),
             (1,
               match m_1 with
-              | List.cons (Prod.mk x z) m =>
+              | List.cons (Prod.mk x _z) m =>
                 match DecOpt.decOpt (BEq.beq x x_1_1_1) initSize with
                 | Except.ok Bool.true => return List.cons (Prod.mk x_1_1_1 ty_1_1_1) m
                 | _ => MonadExcept.throw Plausible.Gen.genericFailure
@@ -675,7 +573,7 @@ instance [DecidableEq α][DecidableEq β] : ArbitrarySizedSuchThat β (fun z_1 =
         GeneratorCombinators.backtrack
           [(1,
               match tys_1_1 with
-              | List.cons m ms => do
+              | List.cons m _ms => do
                 let (z_1 : β) ← ArbitrarySizedSuchThat.arbitrarySizedST (fun (z_1 : β) => MapFind m x_1_1 z_1) initSize;
                 return z_1
               | _ => MonadExcept.throw Plausible.Gen.genericFailure)]
@@ -683,13 +581,13 @@ instance [DecidableEq α][DecidableEq β] : ArbitrarySizedSuchThat β (fun z_1 =
         GeneratorCombinators.backtrack
           [(1,
               match tys_1_1 with
-              | List.cons m ms => do
+              | List.cons m _ms => do
                 let (z_1 : β) ← ArbitrarySizedSuchThat.arbitrarySizedST (fun (z_1 : β) => MapFind m x_1_1 z_1) initSize;
                 return z_1
               | _ => MonadExcept.throw Plausible.Gen.genericFailure),
             (Nat.succ size',
               match tys_1_1 with
-              | List.cons m ms => do
+              | List.cons _m ms => do
                 let (z_1 : β) ← aux_arb initSize size' α β ms x_1_1
                 return z_1
               | _ => MonadExcept.throw Plausible.Gen.genericFailure)])
@@ -703,14 +601,12 @@ instance [DecidableEq α][DecidableEq β] : ArbitrarySizedSuchThat β (fun z_1 =
 
 instance [DecidableEq α] [DecidableEq β] : ArbitrarySizedSuchThat (Maps α β) (fun Γ_1 => @MapsInsert α β tys_1 x_1 ty_1 Γ_1) where
   arbitrarySizedST :=
-    let rec aux_arb (initSize : Nat) (size : Nat) (α_1 : Type) (β_1 : Type) (tys_1 : Maps α β) (x_1 : α)
+    let rec aux_arb (initSize : Nat) (size : Nat) (tys_1 : Maps α β) (x_1 : α)
       (ty_1 : β) : Plausible.Gen (Maps α β) :=
       (match size with
       | Nat.zero =>
         GeneratorCombinators.backtrack
           [(1, do
-              let (z : β) ← ArbitrarySizedSuchThat.arbitrarySizedST (fun (z : β) => MapsFind tys_1 x_1 z) initSize;
-              do
                 let (Γ_1 : Maps α β) ←
                   ArbitrarySizedSuchThat.arbitrarySizedST (fun (Γ_1 : Maps α β) => MapsReplace tys_1 x_1 ty_1 Γ_1)
                       initSize;
@@ -722,11 +618,9 @@ instance [DecidableEq α] [DecidableEq β] : ArbitrarySizedSuchThat (Maps α β)
                 | Except.ok Bool.true => return List.cons (List.cons (Prod.mk x_1 ty_1) m) ms
                 | _ => MonadExcept.throw Plausible.Gen.genericFailure
               | _ => MonadExcept.throw Plausible.Gen.genericFailure)]
-      | Nat.succ size' =>
+      | Nat.succ _size' =>
         GeneratorCombinators.backtrack
           [(1, do
-              let (z : β) ← ArbitrarySizedSuchThat.arbitrarySizedST (fun (z : β) => MapsFind tys_1 x_1 z) initSize;
-              do
                 let (Γ_1 : Maps α β) ←
                   ArbitrarySizedSuchThat.arbitrarySizedST (fun (Γ_1 : Maps α β) => MapsReplace tys_1 x_1 ty_1 Γ_1)
                       initSize;
@@ -739,7 +633,7 @@ instance [DecidableEq α] [DecidableEq β] : ArbitrarySizedSuchThat (Maps α β)
                 | _ => MonadExcept.throw Plausible.Gen.genericFailure
               | _ => MonadExcept.throw Plausible.Gen.genericFailure),
             ])
-    fun size => aux_arb size size α β tys_1 x_1 ty_1
+    fun size => aux_arb size size tys_1 x_1 ty_1
 
 -- derive_generator fun (α β : Type) Γ => ∃ (p : α × β), @MapFind₂ α β Γ p
 
@@ -754,17 +648,17 @@ instance [Plausible.Arbitrary α_1] [DecidableEq α_1] [Plausible.Arbitrary β_1
         GeneratorCombinators.backtrack
           [(1,
               match Γ_1 with
-              | List.cons (Prod.mk x y) m => return Prod.mk x y
+              | List.cons (Prod.mk x y) _m => return Prod.mk x y
               | _ => MonadExcept.throw Plausible.Gen.genericFailure)]
       | Nat.succ size' =>
         GeneratorCombinators.backtrack
           [(1,
               match Γ_1 with
-              | List.cons (Prod.mk x y) m => return Prod.mk x y
+              | List.cons (Prod.mk x y) _m => return Prod.mk x y
               | _ => MonadExcept.throw Plausible.Gen.genericFailure),
             (Nat.succ size',
               match Γ_1 with
-              | List.cons p m => do
+              | List.cons _p m => do
                 let (p_1 : Prod α_1 β_1) ← aux_arb initSize size' α_1 β_1 m;
                 return p_1
               | _ => MonadExcept.throw Plausible.Gen.genericFailure)])
@@ -872,11 +766,6 @@ instance : ArbitrarySizedSuchThat (LExpr LMonoTy Unit) (fun t_1 => HasType fact_
                   return Lambda.LExpr.fvar x.fst (.some <| LTy.toMonoTypeUnsafe ty_1)
                 else
                   throw Gen.genericFailure),
-            -- (Nat.succ size', do
-            --   let (e : LExpr LMonoTy Unit) ← aux_arb initSize size' ctx_1 ty_1;
-            --   do
-            --     let (info : Info) ← Plausible.Arbitrary.arbitrary;
-            --     return Lambda.LExpr.mdata info e),
             (Nat.succ size',
               match ty_1 with
               |
@@ -953,7 +842,7 @@ def knownTypes : KnownTypes := Std.HashMap.ofList [⟨"bool", 0⟩, ⟨"int", 0�
 
 
 #print KnownTypes.default
--- FIXME: get the boogie factory
+
 abbrev example_lctx : LContext Unit :=
 { LContext.empty with knownTypes := KnownTypes.default
                       functions := Lambda.IntBoolFactory
@@ -968,45 +857,16 @@ abbrev example_ty : LTy := .forAll [] <| .tcons "arrow" [.tcons "bool" [], .tcon
   Gen.runUntil .none (ArbitrarySizedSuchThat.arbitrarySizedST P 4) 4
 
 
-#print String
-#print Char
-
 #eval varClose 0 "x" (.fvar "x" (.some <| .tcons "bool" []))
-
-#print TEnv
-#print TGenEnv
-#print TState
-#print Factory
-#print KnownTypes
-#print KnownType
-#print Identifiers
-#print Std.HashMap
-
-
-#check List.range
 
 #time #eval
     let P : LExpr LMonoTy Unit → Prop := fun t => HasType example_lctx example_ctx t example_ty
     Gen.runUntil .none (ArbitrarySizedSuchThat.arbitrarySizedST P 4) 4
-
-#print LState
-
-#check LState.init.config
-
--- { σ with config := { σ.config with factory := newF } }
 def example_lstate :=
   { LState.init (IDMeta := Unit) with config :=
     { LState.init.config (IDMeta := Unit) with
       factory := Lambda.IntBoolFactory }
   }
-
-#eval LExpr.eval 100 example_lstate <| .app (.abs .none (.bvar 0)) (.const <| .boolConst true)
-
-
-#print LExpr
-#print Shrinkable
-#print IdentT
-#print Identifier
 
 instance [Inhabited β] : Shrinkable (LExpr α β) where
   shrink t :=
@@ -1081,53 +941,7 @@ match t with
       IO.println s!"FAILED({i}): {t}\n\nSHRUNK TO:\n{shrinkFun (not ∘ canAnnotate) t}\n\n"
 
 
-
-structure MyPair where
-  first : Nat
-  second : Nat
-deriving Arbitrary, Inhabited
-
-opaque f : MyPair → MyPair
-
-inductive MyPred : MyPair → Prop where
--- | foo : MyPred p
-| bar : MyPred p → MyPred p
--- | baz : 0 = 0 → MyPred p
--- | boz : MyPred ⟨p.first, p.second⟩ → MyPred p
--- | biz : MyPred (f p) → MyPred p
--- | fresh  {n'} {p : MyPair} : n' = 0 → MyPred {p with second := n'} → MyPred p
-
-
-#check ∃ p : MyPair, MyPred p
-derive_generator ∃ p : MyPair, MyPred p
-
-opaque F : Nat → Type
-
-structure C where
-  fld : Nat
-
-opaque unF : ∀ x, F x → Nat
-
-inductive Foo : C → Prop where
-| dummy : Foo ⟨ 0 ⟩
-| constr {c : C} : Foo { c with fld := a' } → Foo ⟨ (a * 2) + 1 ⟩
-
-derive_generator ∃ c, Foo c
-
-#print Info
-#print QuantifierKind
-#print LConst
-#print LMonoTy
-#print LTy
-#print LExpr
-#print TContext
-#print Maps
-#print Map
-#print TypeAlias
-#print Identifier
-#print TyIdentifier
-
-opaque toMono : LTy → LMonoTy
+/- opaque toMono : LTy → LMonoTy
 
 def varClose' : LExpr LMonoTy Unit → LExpr LMonoTy Unit :=
   fun e => e
@@ -1143,3 +957,4 @@ inductive HasType' : (TContext Unit) → (LExpr LMonoTy Unit) → LTy → Prop w
 
 -- set_option trace.plausible.deriving.arbitrary true in
 derive_generator fun ct ty => ∃ e, HasType' ct e ty
+ -/
