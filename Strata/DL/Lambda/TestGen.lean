@@ -31,13 +31,15 @@ deriving instance Arbitrary for Lambda.LExpr
 
 #eval Gen.printSamples (Arbitrary.arbitrary : Gen <| Lambda.LExpr String String)
 
+#check Lambda.LExpr.HasType
+
 -- derive_generator (fun idMeta inst env ctx ty => ∃ t, @Lambda.LExpr.HasType idMeta inst env ctx t ty)
 
 open Lambda
 open LTy
 
 -- FIXME: can I use the original?
-def varClose (k : Nat) (x : Identifier Unit) (e : LExpr LMonoTy Unit) : LExpr LMonoTy Unit :=
+def varClose [DecidableEq α] (k : Nat) (x : Identifier α) (e : LExpr LMonoTy α) : LExpr LMonoTy α :=
   match e with
   | .const c => .const c
   | .op o ty => .op o ty
@@ -214,7 +216,7 @@ inductive HasType {IDMeta : Type} [DecidableEq IDMeta] (C: LContext IDMeta):
 -/
 
 -- We massage the `HasType` definition to be more amenable to generation
-inductive HasType : (LContext Unit) → (TContext Unit) → (LExpr LMonoTy Unit) → LTy → Prop where
+inductive HasType [DecidableEq α] : (LContext α) → (TContext α) → (LExpr LMonoTy α) → LTy → Prop where
 
   | tbool_const : ∀ C Γ b,
             HasType C Γ (.boolConst b) (.forAll [] .bool)
@@ -232,7 +234,7 @@ inductive HasType : (LContext Unit) → (TContext Unit) → (LExpr LMonoTy Unit)
   | tabs : ∀ C Γ Γ' x x_ty e e_ty,
             MapsInsert Γ.types x (.forAll [] x_ty) Γ' →
             HasType C { Γ with types := Γ'} e (.forAll [] e_ty) →
-            HasType C Γ (.abs .none <| varClose 0 x e)
+            HasType C Γ (.abs .none <| varClose (α := α) 0 x e)
                         (.forAll [] (.tcons "arrow" [x_ty, e_ty]))
 
   | tapp : ∀ C Γ e1 e2 t1 t2,
@@ -706,10 +708,10 @@ instance [Plausible.Arbitrary α_1] [DecidableEq α_1] [Plausible.Arbitrary β_1
 -- set_option trace.plausible.deriving.arbitrary true in
 -- derive_generator (fun fact ctx ty => ∃ t, HasType fact ctx t ty)
 
-instance : ArbitrarySizedSuchThat (LExpr LMonoTy Unit) (fun t_1 => HasType fact_1 ctx_1 t_1 ty_1) where
+instance [DecidableEq α] [Arbitrary α] : ArbitrarySizedSuchThat (LExpr LMonoTy α) (fun t_1 => HasType fact_1 ctx_1 t_1 ty_1) where
   arbitrarySizedST :=
-    let rec aux_arb (initSize : Nat) (size : Nat) (ctx_1 : TContext Unit) (ty_1 : LTy) :
-      Plausible.Gen (LExpr LMonoTy Unit) :=
+    let rec aux_arb (initSize : Nat) (size : Nat) (ctx_1 : TContext α) (ty_1 : LTy) :
+      Plausible.Gen (LExpr LMonoTy α) :=
       (match size with
       | Nat.zero =>
         GeneratorCombinators.backtrack
@@ -730,7 +732,7 @@ instance : ArbitrarySizedSuchThat (LExpr LMonoTy Unit) (fun t_1 => HasType fact_
                 return .intConst n
               | _ => MonadExcept.throw Plausible.Gen.genericFailure),
             (1, do
-                let (x : Identifier Unit × LTy) ←
+                let (x : Identifier α × LTy) ←
                   ArbitrarySizedSuchThat.arbitrarySizedST
                       (fun x => MapsFind₂ (Lambda.TContext.types ctx_1) x) initSize;
                 if x.snd = ty_1 then
@@ -759,7 +761,7 @@ instance : ArbitrarySizedSuchThat (LExpr LMonoTy Unit) (fun t_1 => HasType fact_
                 return .intConst n
               | _ => MonadExcept.throw Plausible.Gen.genericFailure),
             (size', do
-                let (x : Identifier Unit × LTy) ←
+                let (x : Identifier α × LTy) ←
                   ArbitrarySizedSuchThat.arbitrarySizedST
                       (fun x_x_ty => MapsFind₂ (Lambda.TContext.types ctx_1) x_x_ty) initSize;
                   if x.snd = ty_1 then
@@ -773,12 +775,12 @@ instance : ArbitrarySizedSuchThat (LExpr LMonoTy Unit) (fun t_1 => HasType fact_
                   (Lambda.LMonoTy.tcons "arrow"
                     (List.cons (x_ty)
                       (List.cons (e_ty) (List.nil)))) => do
-                let x : Identifier Unit ← Arbitrary.arbitrary
+                let x : Identifier α ← Arbitrary.arbitrary
                 let x_ty' := LTy.forAll [] x_ty
                 let e_ty' := LTy.forAll [] e_ty
-                let Γ' : Maps (Identifier Unit) LTy ←
+                let Γ' : Maps (Identifier α) LTy ←
                     ArbitrarySuchThat.arbitraryST
-                        (fun (Γ' : Maps (Identifier Unit) LTy) =>
+                        (fun (Γ' : Maps (Identifier α) LTy) =>
                           MapsInsert (Lambda.TContext.types ctx_1) x x_ty' Γ')
                 let e ← aux_arb initSize size' {ctx_1 with types := Γ'} e_ty'
                 let e := varClose 0 x e
@@ -787,10 +789,10 @@ instance : ArbitrarySizedSuchThat (LExpr LMonoTy Unit) (fun t_1 => HasType fact_
             (Nat.succ size', do
               let (t2 : LMonoTy) ← Plausible.Arbitrary.arbitrary;
               do
-                let (e2 : LExpr LMonoTy Unit) ← aux_arb initSize size' ctx_1 (.forAll [] t2);
+                let (e2 : LExpr LMonoTy α) ← aux_arb initSize size' ctx_1 (.forAll [] t2);
                 do
                   if h1 : isMonoType ty_1 then
-                  let (e1 : LExpr LMonoTy Unit) ←
+                  let (e1 : LExpr LMonoTy α) ←
                     aux_arb initSize size' ctx_1
                             (Lambda.LTy.forAll (List.nil)
                               (Lambda.LMonoTy.tcons "arrow"
@@ -799,28 +801,28 @@ instance : ArbitrarySizedSuchThat (LExpr LMonoTy Unit) (fun t_1 => HasType fact_
                       return Lambda.LExpr.app e1 e2
                   else MonadExcept.throw Plausible.Gen.genericFailure),
             (Nat.succ size', do
-              let (c : LExpr LMonoTy Unit) ←
+              let (c : LExpr LMonoTy α) ←
                 aux_arb initSize size' ctx_1 (Lambda.LTy.forAll (List.nil) (Lambda.LMonoTy.tcons "bool" (List.nil)));
               do
-                let (e1 : LExpr LMonoTy Unit) ← aux_arb initSize size' ctx_1 ty_1;
+                let (e1 : LExpr LMonoTy α) ← aux_arb initSize size' ctx_1 ty_1;
                 do
-                  let (e2 : LExpr LMonoTy Unit) ← aux_arb initSize size' ctx_1 ty_1;
+                  let (e2 : LExpr LMonoTy α) ← aux_arb initSize size' ctx_1 ty_1;
                   return Lambda.LExpr.ite c e1 e2),
             (Nat.succ size',
               match ty_1 with
               | Lambda.LTy.forAll (List.nil) (Lambda.LMonoTy.tcons "bool" (List.nil)) => do
                 let (ty : LTy) ← Plausible.Arbitrary.arbitrary;
                 do
-                  let (e1 : LExpr LMonoTy Unit) ← aux_arb initSize size' ctx_1 ty;
+                  let (e1 : LExpr LMonoTy α) ← aux_arb initSize size' ctx_1 ty;
                   do
-                    let (e2 : LExpr LMonoTy Unit) ← aux_arb initSize size' ctx_1 ty;
+                    let (e2 : LExpr LMonoTy α) ← aux_arb initSize size' ctx_1 ty;
                     return Lambda.LExpr.eq e1 e2
               | _ => MonadExcept.throw Plausible.Gen.genericFailure),
             (10, do
-              let (f : LFunc Unit) ←
+              let (f : LFunc α) ←
                 @ArbitrarySizedSuchThat.arbitrarySizedST _
-                    (fun (f : LFunc Unit) =>
-                      @ArrayFind (@Lambda.LFunc (@Unit)) (@Lambda.LContext.functions (@Unit) fact_1) f)
+                    (fun (f : LFunc α) =>
+                      @ArrayFind (@Lambda.LFunc α) (@Lambda.LContext.functions α fact_1) f)
                     _ initSize;
               do
                 match f.type with
@@ -857,7 +859,7 @@ abbrev example_ty : LTy := .forAll [] <| .tcons "arrow" [.tcons "bool" [], .tcon
   Gen.runUntil .none (ArbitrarySizedSuchThat.arbitrarySizedST P 4) 4
 
 
-#eval varClose 0 "x" (.fvar "x" (.some <| .tcons "bool" []))
+#eval varClose (α := Unit) 0 "x" (.fvar "x" (.some <| .tcons "bool" []))
 
 #time #eval
     let P : LExpr LMonoTy Unit → Prop := fun t => HasType example_lctx example_ctx t example_ty
@@ -917,7 +919,7 @@ def canAnnotate (t : LExpr LMonoTy Unit) : Bool :=
 #time #eval do
   IO.println s!"Generating terms of type\n{example_ty}\nin context\n{repr example_ctx}\nin \
                 factory\n{example_lctx.functions.map (fun f : LFunc Unit => f.name)}\n"
-  for i in List.range 100 do
+  for i in List.range 1000 do
     let P : LExpr LMonoTy Unit → Prop := fun t => HasType example_lctx example_ctx t example_ty
     let t ← Gen.runUntil .none (ArbitrarySizedSuchThat.arbitrarySizedST P 5) 5
     -- IO.println s!"Generated {t}"
@@ -929,16 +931,18 @@ match t with
 | .const (.intConst _) => true
 | _ => false
 
+def reduces (t : LExpr LMonoTy Unit) : Bool :=
+  let t' := t.eval 1000 example_lstate
+  isIntConst t'
 
 #time #eval do
   IO.println s!"Generating terms of type\n{example_ty}\nin context\n{repr example_ctx}\nin \
                 factory\n{example_lctx.functions.map (fun f : LFunc Unit => f.name)}\n"
-  for i in List.range 100 do
+  for i in List.range 1000 do
     let P : LExpr LMonoTy Unit → Prop := fun t => HasType example_lctx example_ctx t (.forAll [] (.tcons "int" []))
     let t ← Gen.runUntil .none (ArbitrarySizedSuchThat.arbitrarySizedST P 5) 5
-    let t' := t.eval 1000 example_lstate
-    if !(isIntConst t') then
-      IO.println s!"FAILED({i}): {t}\n\nSHRUNK TO:\n{shrinkFun (not ∘ canAnnotate) t}\n\n"
+    if !(reduces t) then
+      IO.println s!"NOT A VALUE({i}): {t}\nREDUCES TO\n{t.eval 1000 example_lstate}\n\n"
 
 
 /- opaque toMono : LTy → LMonoTy
