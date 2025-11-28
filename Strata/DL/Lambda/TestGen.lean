@@ -33,6 +33,7 @@ deriving instance Arbitrary for Lambda.LExpr
 
 #check Lambda.LExpr.HasType
 
+-- -- Does not work at the moment, due to restrictions on the constructor types
 -- derive_generator (fun idMeta inst env ctx ty => ∃ t, @Lambda.LExpr.HasType idMeta inst env ctx t ty)
 
 open Lambda
@@ -63,6 +64,9 @@ inductive MapsFind : Maps α β → α → β → Prop where
 | hd : MapFind m x y → MapsFind (m :: ms) x y
 | tl : MapsFind ms x y → MapsFind (m :: ms) x y
 
+-- Sadly, we need these versions as well for the time being, because
+-- we can only generate one output at a time for a given inductive constraint.
+-- Here we want to produce both the key and the value at once.
 inductive MapFind₂ {α β : Type} : Map α β → α × β → Prop where
 | hd : MapFind₂ ((x, y) :: m) (x, y)
 | tl : MapFind₂ m q → MapFind₂ (p :: m) q
@@ -95,6 +99,7 @@ inductive MapsInsert : Maps α β → α → β → Maps α β → Prop where
 | notFound : MapsNotFound (m::ms) x → MapsInsert (m::ms) x y (((x,y)::m)::ms)
 | empty : MapsInsert [] x y [[(x, y)]]
 
+-- -- We hand write this to avoid guessing and checking for strings.
 instance instStringSuchThatIsInt : ArbitrarySizedSuchThat String (fun s => s.isInt) where
   arbitrarySizedST _ := toString <$> (Arbitrary.arbitrary : Gen Int)
 
@@ -262,9 +267,12 @@ inductive HasType [DecidableEq α] : (LContext α) → (TContext α) → (LExpr 
 
   -- -- We only generate monomorphic types for now
 
+-- -- We hand write this for readability
 instance : Arbitrary TyIdentifier where
   arbitrary := Gen.oneOf #[return "A", return "B", return "C", return "D"]
 
+
+-- -- We hand write this instance to control the base type names.
 instance : Arbitrary LMonoTy where
   arbitrary :=
     let rec aux (n : Nat) : Gen LMonoTy :=
@@ -289,6 +297,9 @@ instance : Arbitrary LTy where
   arbitrary := LTy.forAll [] <$> Arbitrary.arbitrary
 
 -- #eval Gen.printSamples (Arbitrary.arbitrary : Gen LMonoTy)
+
+-- -- This works
+-- derive_generator fun α β m y => ∃ x, @MapFind α β m x y
 
 instance {α β m_1 y_1_1} [BEq β] : ArbitrarySizedSuchThat α (fun x_1_1 => @MapFind α β m_1 x_1_1 y_1_1) where
   arbitrarySizedST :=
@@ -325,6 +336,7 @@ instance {α β m_1 y_1_1} [BEq β] : ArbitrarySizedSuchThat α (fun x_1_1 => @M
   let P : Nat → Prop := fun n : Nat => MapFind [((2 : Nat), "foo")] n "foo"
   Gen.runUntil .none (ArbitrarySizedSuchThat.arbitrarySizedST P 10) 10
 
+-- -- This works
 -- derive_generator fun α β tys y => ∃ x, @MapsFind α β tys x y
 
 instance [DecidableEq β] : ArbitrarySizedSuchThat α (fun x_1 => @MapsFind α β tys_1 x_1 y_1) where
@@ -361,7 +373,7 @@ instance [DecidableEq β] : ArbitrarySizedSuchThat α (fun x_1 => @MapsFind α �
   let P : Nat → Prop := fun n : Nat => MapsFind [[((2 : Nat), "foo")]] n "foo"
   Gen.runUntil .none (ArbitrarySizedSuchThat.arbitrarySizedST P 10) 10
 
-
+-- -- This works
 -- derive_generator fun α β m x_1 => ∃ y_1, @MapFind α β m x_1 y_1
 instance [DecidableEq α] : ArbitrarySizedSuchThat β (fun y_1_1 => @MapFind α β m_1 x_1_1 y_1_1) where
   arbitrarySizedST :=
@@ -411,6 +423,7 @@ where
     if ty ∉ l then ty
     else getFreshIdentSuffix n' l
 
+-- -- We hand write this as well. We might be able to derive a reasonable version if we had an inductive relation, by guessing and checking.
 instance instArbitrarySizedSuchThatFresh [DecidableEq α] {ctx : TContext α} : ArbitrarySizedSuchThat TyIdentifier (fun a => TContext.isFresh a ctx) where
   arbitrarySizedST _ := do
     let allTypes := ctx.types.flatten.map Prod.snd
@@ -426,6 +439,7 @@ instance instArbitrarySizedSuchThatFresh [DecidableEq α] {ctx : TContext α} : 
   let P : TyIdentifier → Prop := fun s : String => TContext.isFresh s ctx
   Gen.runUntil .none (@ArbitrarySizedSuchThat.arbitrarySizedST _ P (@instArbitrarySizedSuchThatFresh _ _ ctx) 10) 10
 
+-- -- This works
 -- derive_checker fun α β m x => @MapNotFound α β m x
 instance [DecidableEq α_1] : DecOpt (@MapNotFound α_1 β_1 m_1 x_1) where
   decOpt :=
@@ -454,6 +468,7 @@ instance [DecidableEq α_1] : DecOpt (@MapNotFound α_1 β_1 m_1 x_1) where
 #eval DecOpt.decOpt (MapNotFound [("foo", 4)] "foo") 5
 #eval DecOpt.decOpt (MapNotFound [("foo", 4)] "bar") 5
 
+-- -- This works
 -- derive_generator fun α β m x_1_1 ty_1_1 => ∃ m', @MapReplace α β m x_1_1 ty_1_1 m'
 instance [DecidableEq α] : ArbitrarySizedSuchThat (Map α β) (fun m'_1 => @MapReplace α β m_1 x_1_1_1 ty_1_1_1 m'_1) where
   arbitrarySizedST :=
@@ -501,6 +516,7 @@ instance [DecidableEq α] : ArbitrarySizedSuchThat (Map α β) (fun m'_1 => @Map
   let P : Map Nat String → Prop := fun m' => MapReplace [((2 : Nat), "old")] 2 "new" m'
   Gen.runUntil .none (ArbitrarySizedSuchThat.arbitrarySizedST P 10) 10
 
+-- -- This works
 -- derive_checker fun α β m x => @MapsNotFound α β m x
 
 instance [DecidableEq α_1] : DecOpt (@MapsNotFound α_1 β_1 m_1 x_1) where
@@ -531,6 +547,7 @@ instance [DecidableEq α_1] : DecOpt (@MapsNotFound α_1 β_1 m_1 x_1) where
 #eval DecOpt.decOpt (MapsNotFound [[("foo", 4)]] "foo") 5
 #eval DecOpt.decOpt (MapsNotFound [[("foo", 4)]] "bar") 5
 
+-- -- This works
 -- derive_generator fun α β tys_1 x_1 ty_1 => ∃ (Γ_1 : Maps α β), @MapsReplace α β tys_1 x_1 ty_1 Γ_1
 instance [DecidableEq α] : ArbitrarySizedSuchThat (Maps α β) (fun Γ_1_1 => @MapsReplace α β tys_1_1 x_1_1 ty_1_1 Γ_1_1) where
   arbitrarySizedST :=
@@ -565,6 +582,7 @@ instance [DecidableEq α] : ArbitrarySizedSuchThat (Maps α β) (fun Γ_1_1 => @
   let P : Maps Nat String → Prop := fun m' => MapsReplace [[((2 : Nat), "old")]] 2 "new" m'
   Gen.runUntil .none (ArbitrarySizedSuchThat.arbitrarySizedST P 10) 10
 
+-- -- This works
 -- derive_generator (fun α β tys_1 x_1 => ∃ (z : β), @MapsFind α β tys_1 x_1 z)
 instance [DecidableEq α][DecidableEq β] : ArbitrarySizedSuchThat β (fun z_1 => @MapsFind α β tys_1_1 x_1_1 z_1) where
   arbitrarySizedST :=
@@ -599,6 +617,7 @@ instance [DecidableEq α][DecidableEq β] : ArbitrarySizedSuchThat β (fun z_1 =
   let P : _ → Prop := fun z => MapsFind [[((2 : Nat), "old")]] 2 z
   Gen.runUntil .none (ArbitrarySizedSuchThat.arbitrarySizedST P 10) 10
 
+-- -- This works
 -- derive_generator (fun α β tys x ty => ∃ Γ, @MapsInsert α β tys x ty Γ)
 
 instance [DecidableEq α] [DecidableEq β] : ArbitrarySizedSuchThat (Maps α β) (fun Γ_1 => @MapsInsert α β tys_1 x_1 ty_1 Γ_1) where
@@ -637,6 +656,8 @@ instance [DecidableEq α] [DecidableEq β] : ArbitrarySizedSuchThat (Maps α β)
             ])
     fun size => aux_arb size size tys_1 x_1 ty_1
 
+
+-- -- This works!
 -- derive_generator fun (α β : Type) Γ => ∃ (p : α × β), @MapFind₂ α β Γ p
 
 instance [Plausible.Arbitrary α_1] [DecidableEq α_1] [Plausible.Arbitrary β_1] [DecidableEq β_1] :
@@ -667,6 +688,7 @@ instance [Plausible.Arbitrary α_1] [DecidableEq α_1] [Plausible.Arbitrary β_1
     fun size => aux_arb size size α_1 β_1 Γ_1
 
 
+-- --  This does not work for silly reasons, a minor bug in matching on types with a single constructor.
 -- derive_generator fun (α β : Type) Γ => ∃ (p : α × β), @MapsFind₂ α β Γ p
 
 
@@ -704,10 +726,13 @@ instance [Plausible.Arbitrary α_1] [DecidableEq α_1] [Plausible.Arbitrary β_1
   let P : Maps Nat String → Prop := fun m' => MapsInsert [[], [((3 : Nat), "old")]] 2 "new" m'
   Gen.runUntil .none (ArbitrarySizedSuchThat.arbitrarySizedST P 10) 10
 
--- -- Some funky bug
--- set_option trace.plausible.deriving.arbitrary true in
--- derive_generator (fun fact ctx ty => ∃ t, HasType fact ctx t ty)
+-- We don't quite handle this case yet, if `α` is a type variable.
+-- Monomorphising `α` and removing the `DecidableEq` constraint gives us an almost perfect generator!
 
+-- derive_generator (fun α eqdec fact ctx ty => ∃ t, @HasType α eqdec fact ctx t ty)
+
+
+-- For now though, we hand write a specialized version, without certain constants and without polymorphism.
 instance [DecidableEq α] [Arbitrary α] : ArbitrarySizedSuchThat (LExpr LMonoTy α) (fun t_1 => HasType fact_1 ctx_1 t_1 ty_1) where
   arbitrarySizedST :=
     let rec aux_arb (initSize : Nat) (size : Nat) (ctx_1 : TContext α) (ty_1 : LTy) :
@@ -835,13 +860,8 @@ instance [DecidableEq α] [Arbitrary α] : ArbitrarySizedSuchThat (LExpr LMonoTy
         ])
     fun size => aux_arb size size ctx_1 ty_1
 
-#print LContext
-#print Factory
 
 #eval Gen.printSamples (Arbitrary.arbitrary : Gen LMonoTy)
-
-def knownTypes : KnownTypes := Std.HashMap.ofList [⟨"bool", 0⟩, ⟨"int", 0⟩, ⟨"arrow", 2⟩]
-
 
 #print KnownTypes.default
 
