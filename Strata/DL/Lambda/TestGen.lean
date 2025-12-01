@@ -8,10 +8,12 @@ import Strata.DL.Lambda.IntBoolFactory
 import Plausible.Sampleable
 import Plausible.DeriveArbitrary
 import Plausible.Attr
-import Plausible.Chamelean.ArbitrarySizedSuchThat
-import Plausible.Chamelean.DecOpt
-import Plausible.Chamelean.DeriveConstrainedProducer
-import Plausible.Chamelean.DeriveChecker
+import Strata.DL.Lambda.PlausibleHelpers
+
+-- import Plausible.Chamelean.ArbitrarySizedSuchThat
+-- import Plausible.Chamelean.DecOpt
+-- import Plausible.Chamelean.DeriveConstrainedProducer
+-- import Plausible.Chamelean.DeriveChecker
 
 open Plausible
 
@@ -38,6 +40,7 @@ deriving instance Arbitrary for Lambda.LExpr
 
 open Lambda
 open LTy
+open TestGen
 
 -- FIXME: can I use the original?
 def varClose [DecidableEq α] (k : Nat) (x : Identifier α) (e : LExpr LMonoTy α) : LExpr LMonoTy α :=
@@ -804,9 +807,9 @@ instance [DecidableEq α] [Arbitrary α] : ArbitrarySizedSuchThat (LExpr LMonoTy
                 let x_ty' := LTy.forAll [] x_ty
                 let e_ty' := LTy.forAll [] e_ty
                 let Γ' : Maps (Identifier α) LTy ←
-                    ArbitrarySuchThat.arbitraryST
+                    ArbitrarySizedSuchThat.arbitrarySizedST
                         (fun (Γ' : Maps (Identifier α) LTy) =>
-                          MapsInsert (Lambda.TContext.types ctx_1) x x_ty' Γ')
+                          MapsInsert (Lambda.TContext.types ctx_1) x x_ty' Γ') initSize;
                 let e ← aux_arb initSize size' {ctx_1 with types := Γ'} e_ty'
                 let e := varClose 0 x e
                 return .abs x_ty e
@@ -889,6 +892,15 @@ def example_lstate :=
     { LState.init.config (IDMeta := Unit) with
       factory := Lambda.IntBoolFactory }
   }
+
+/-- `Monad` instance for List.
+    Note that:
+    - The Lean standard library does not have a Monad instance for List (see https://leanprover-community.github.io/archive/stream/270676-lean4/topic/Option.20do.20notation.20regression.3F.html#231433226)
+    - MathLib4 does have a Monad instance for List, but we wish to avoid having Chamelean rely on Mathlib
+    as a dependency, so we reproduce instance here instead. -/
+private instance : Monad List where
+  pure x := [x]
+  bind xs f := xs.flatMap f
 
 instance [Inhabited β] : Shrinkable (LExpr α β) where
   shrink t :=
