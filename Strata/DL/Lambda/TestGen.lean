@@ -29,9 +29,108 @@ instance instArbitraryRat : Arbitrary Rat where
 
 deriving instance Arbitrary for Lambda.LConst
 
-deriving instance Arbitrary for Lambda.LExpr
+-- This doesn't work because of bundled arguments
+-- deriving instance Arbitrary for Lambda.LExpr
 
-#eval Gen.printSamples (Arbitrary.arbitrary : Gen <| Lambda.LExpr String String)
+
+def instArbitraryLExpr.arbitrary {T}
+  [Arbitrary T.base.Metadata] [Arbitrary T.base.IDMeta] [Arbitrary T.TypeType]
+  : Nat → Plausible.Gen (@Lambda.LExpr T) :=
+  let rec aux_arb (fuel : Nat) : Plausible.Gen (@Lambda.LExpr T) :=
+    (match fuel with
+    | Nat.zero =>
+      Plausible.Gen.oneOfWithDefault
+        (do
+          let a ← Plausible.Arbitrary.arbitrary
+          let a_1 ← Plausible.Arbitrary.arbitrary
+          return Lambda.LExpr.const a a_1)
+        [(do
+            let a ← Plausible.Arbitrary.arbitrary
+            let a_1 ← Plausible.Arbitrary.arbitrary
+            return Lambda.LExpr.const a a_1),
+          (do
+            let a_2 ← Plausible.Arbitrary.arbitrary
+            let a_3 ← Plausible.Arbitrary.arbitrary
+            let a_4 ← Plausible.Arbitrary.arbitrary
+            return Lambda.LExpr.op a_2 a_3 a_4),
+          (do
+            let a_5 ← Plausible.Arbitrary.arbitrary
+            let a_6 ← Plausible.Arbitrary.arbitrary
+            return Lambda.LExpr.bvar a_5 a_6),
+          (do
+            let a_7 ← Plausible.Arbitrary.arbitrary
+            let a_8 ← Plausible.Arbitrary.arbitrary
+            let a_9 ← Plausible.Arbitrary.arbitrary
+            return Lambda.LExpr.fvar a_7 a_8 a_9)]
+    | fuel' + 1 =>
+      Plausible.Gen.frequency
+        (do
+          let a ← Plausible.Arbitrary.arbitrary
+          let a_1 ← Plausible.Arbitrary.arbitrary
+          return Lambda.LExpr.const a a_1)
+        [(1,
+            (do
+              let a ← Plausible.Arbitrary.arbitrary
+              let a_1 ← Plausible.Arbitrary.arbitrary
+              return Lambda.LExpr.const a a_1)),
+          (1,
+            (do
+              let a_2 ← Plausible.Arbitrary.arbitrary
+              let a_3 ← Plausible.Arbitrary.arbitrary
+              let a_4 ← Plausible.Arbitrary.arbitrary
+              return Lambda.LExpr.op a_2 a_3 a_4)),
+          (1,
+            (do
+              let a_5 ← Plausible.Arbitrary.arbitrary
+              let a_6 ← Plausible.Arbitrary.arbitrary
+              return Lambda.LExpr.bvar a_5 a_6)),
+          (1,
+            (do
+              let a_7 ← Plausible.Arbitrary.arbitrary
+              let a_8 ← Plausible.Arbitrary.arbitrary
+              let a_9 ← Plausible.Arbitrary.arbitrary
+              return Lambda.LExpr.fvar a_7 a_8 a_9)),
+          (fuel' + 1,
+            (do
+              let a_10 ← Plausible.Arbitrary.arbitrary
+              let a_11 ← Plausible.Arbitrary.arbitrary
+              let a_12 ← aux_arb fuel'
+              return Lambda.LExpr.abs a_10 a_11 a_12)),
+          (fuel' + 1,
+            (do
+              let a_13 ← Plausible.Arbitrary.arbitrary
+              let a_14 ← Plausible.Arbitrary.arbitrary
+              let a_15 ← Plausible.Arbitrary.arbitrary
+              let a_16 ← aux_arb fuel'
+              let a_17 ← aux_arb fuel'
+              return Lambda.LExpr.quant a_13 a_14 a_15 a_16 a_17)),
+          (fuel' + 1,
+            (do
+              let a_18 ← Plausible.Arbitrary.arbitrary
+              let a_19 ← aux_arb fuel'
+              let a_20 ← aux_arb fuel'
+              return Lambda.LExpr.app a_18 a_19 a_20)),
+          (fuel' + 1,
+            (do
+              let a_21 ← Plausible.Arbitrary.arbitrary
+              let a_22 ← aux_arb fuel'
+              let a_23 ← aux_arb fuel'
+              let a_24 ← aux_arb fuel'
+              return Lambda.LExpr.ite a_21 a_22 a_23 a_24)),
+          (fuel' + 1,
+            (do
+              let a_25 ← Plausible.Arbitrary.arbitrary
+              let a_26 ← aux_arb fuel'
+              let a_27 ← aux_arb fuel'
+              return Lambda.LExpr.eq a_25 a_26 a_27))])
+  fun fuel => aux_arb fuel
+
+instance {T} [Arbitrary T.base.Metadata] [Arbitrary T.base.IDMeta] [Arbitrary T.TypeType] : Plausible.ArbitraryFueled (@Lambda.LExpr T) := ⟨instArbitraryLExpr.arbitrary⟩
+
+#print Lambda.LExprParams
+#print Lambda.LExprParamsT
+
+#eval Gen.printSamples (Arbitrary.arbitrary : Gen <| Lambda.LExpr ⟨⟨String, String⟩, String⟩)
 
 #check Lambda.LExpr.HasType
 
@@ -43,7 +142,7 @@ open LTy
 open TestGen
 
 -- FIXME: can I use the original?
-def varClose [DecidableEq α] (k : Nat) (x : Identifier α) (e : LExpr LMonoTy α) : LExpr LMonoTy α :=
+def varClose [DecidableEq α] (k : Nat) (x : Identifier α) (e : LExpr (LExprParams.mono α)) : LExpr (LExprParams.mono α) :=
   match e with
   | .const c => .const c
   | .op o ty => .op o ty
@@ -974,7 +1073,7 @@ def reduces (t : LExpr LMonoTy Unit) : Bool :=
     let P : LExpr LMonoTy Unit → Prop := fun t => HasType example_lctx example_ctx t (.forAll [] (.tcons "int" []))
     let t ← Gen.runUntil .none (ArbitrarySizedSuchThat.arbitrarySizedST P 5) 5
     if !(reduces t) then
-      IO.println s!"NOT A VALUE({i}): {t}\nREDUCES TO\n{t.eval 1000 example_lstate}\n\n"
+      IO.println s!"NOT A VALUE({i}): {t}\nREDUCES TO\n{t.eval 10000 example_lstate}\n\n"
 
 
 /- opaque toMono : LTy → LMonoTy
