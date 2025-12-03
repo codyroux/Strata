@@ -1,6 +1,14 @@
+/-
+  Copyright Strata Contributors
+
+  SPDX-License-Identifier: Apache-2.0 OR MIT
+-/
+
 import Plausible.Sampleable
 import Plausible.DeriveArbitrary
 import Plausible.Attr
+
+/-! ## Helpers for using Plausible with Chamelean generated instances. -/
 
 namespace TestGen
 
